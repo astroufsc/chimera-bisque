@@ -3,7 +3,7 @@ chimera-bisque plugin
 
 A chimera_ plugin for `Software Bisque`_ TheSky telescopes.
 
-**Note: This plugin is only valid for TheSky versions 5 and 6, for TheSkyX, please use the `chimera-ascom`_ plugin.**
+**Note:** This plugin is only valid for TheSky versions 5 and 6, for TheSkyX, please use the `chimera-ascom`_ plugin.
 
 Usage
 -----
