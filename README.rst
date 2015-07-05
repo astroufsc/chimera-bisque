@@ -1,56 +1,45 @@
-chimera-template plugin
-=======================
+chimera-bisque plugin
+=====================
 
-This is a template plugin for the chimera observatory control system
-https://github.com/astroufsc/chimera.
+A chimera_ plugin for `Software Bisque`_ TheSky telescopes.
+
+**Note: This plugin is only valid for TheSky versions 5 and 6, for TheSkyX, please use the `chimera-ascom`_ plugin.**
 
 Usage
 -----
 
-Rename chimera_template for your plugin name. It is important that the plugin
-name must start with chimera\_ to be found by chimera. Instruments and
-controllers must follow the standard ``chimera_(plugin_name)/(instruments|controllers)/(plugin).py``
-
-The class inside ``(plugin).py`` should be named Plugin (with CamelCase letters).
-
-For more info: https://github.com/astroufsc/chimera/blob/master/docs/site/chimerafordevs.rst#chimera-objects
+Install chimera_ on your computer, and then, this package. Edit the configuration file adding
+a `TheSkyTelescope` like the example below. This package, as The Sky, only works on Windows.
 
 
 Installation
 ------------
 
-Installation instructions. Dependencies, etc...
+On the Windows machine running TheSky 5 or 6, install with pip:
 
 ::
 
-   pip install -U chimera_template
-
-or
-
-::
-
-    pip install -U git+https://github.com/astroufsc/chimera-template.git
+    pip install -U git+https://github.com/astroufsc/chimera-bisque.git
 
 
-Configuration Example
----------------------
+Configuration Examples
+----------------------
 
-Here goes an example of the configuration to be added on ``chimera.config`` file.
+* The Sky version 6. Note that we force chimera to limit the maximum altitude to 15 degrees. This parameter is optional. 
 
 ::
 
-    instrument:
-        name: model
-        type: Example
+	telescope:
+	  name: paramount
+	  type: TheSkyTelescope
+	  thesky: 6
 
-
-Tested Hardware (for instruments)
----------------------------------
+Tested Hardware
+---------------
 
 This plugin was tested on these hardware:
 
-* Hardware example 1, model 2
-* Hardware example 2, model 3
+* Paramount ME on The Sky 6 
 
 
 Contact
@@ -60,4 +49,7 @@ For more information, contact us on chimera's discussion list:
 https://groups.google.com/forum/#!forum/chimera-discuss
 
 Bug reports and patches are welcome and can be sent over our GitHub page:
-https://github.com/astroufsc/chimera-template/
+https://github.com/astroufsc/chimera-bisque/
+
+.. _chimera: https://www.github.com/astroufsc/chimera/
+.. _Software Bisque: http://www.bisque.com/
