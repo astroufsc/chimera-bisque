@@ -1,13 +1,13 @@
 from distutils.core import setup
 
 setup(
-    name='chimera_template',
+    name='chimera-bisque',
     version='0.0.1',
-    packages=['chimera_template', 'chimera_template.instruments', 'chimera_template.controllers'],
+    packages=['chimera_bisque', 'chimera_bisque.instruments'],
     scripts=[],
-    url='http://github.com/astroufsc/chimera-template',
+    url='http://github.com/astroufsc/chimera-bisque',
     license='GPL v2',
     author='William Schoenell',
     author_email='william@iaa.es',
-    description='Template for chimera plugins'
+    description='Chimera plugin for Software Bisque telescopes'
 )
