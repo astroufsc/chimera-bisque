@@ -3,7 +3,7 @@ chimera-bisque plugin
 
 A chimera_ plugin for `Software Bisque`_ TheSky telescopes.
 
-**Note:** This plugin is only valid for TheSky versions 5 and 6, for TheSkyX, please use the `chimera-ascom`_ plugin.
+**Note:** This plugin is only valid for TheSky versions *5* and *6*, for TheSkyX, please use the `chimera-ascom`_ plugin instead.
 
 Usage
 -----
@@ -25,7 +25,7 @@ On the Windows machine running TheSky 5 or 6, install with pip:
 Configuration Examples
 ----------------------
 
-* The Sky version 6. Note that we force chimera to limit the maximum altitude to 15 degrees.
+* The Sky version 6.
 
 ::
 
