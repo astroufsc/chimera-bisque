@@ -25,7 +25,7 @@ On the Windows machine running TheSky 5 or 6, install with pip:
 Configuration Examples
 ----------------------
 
-* The Sky version 6. Note that we force chimera to limit the maximum altitude to 15 degrees. This parameter is optional. 
+* The Sky version 6. Note that we force chimera to limit the maximum altitude to 15 degrees.
 
 ::
 
@@ -52,4 +52,5 @@ Bug reports and patches are welcome and can be sent over our GitHub page:
 https://github.com/astroufsc/chimera-bisque/
 
 .. _chimera: https://www.github.com/astroufsc/chimera/
+.. _chimera-ascom: https://www.github.com/astroufsc/chimera-ascom/
 .. _Software Bisque: http://www.bisque.com/
