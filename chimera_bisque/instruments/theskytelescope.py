@@ -187,6 +187,8 @@ class TheSkyTelescope (TelescopeBase):
     @com
     def slewToRaDec(self, position):
 
+        self._validateRaDec(position)
+
         if self.isSlewing():
             return False
 
@@ -222,6 +224,8 @@ class TheSkyTelescope (TelescopeBase):
 
 #    @com
 #    def slewToAltAz (self, position):
+#
+#        self._validateAltAz(position)
 #
 #        if self.isSlewing ():
 #            return False
