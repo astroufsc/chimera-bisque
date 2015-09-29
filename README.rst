@@ -25,7 +25,8 @@ On the Windows machine running TheSky 5 or 6, install with pip:
 Configuration Examples
 ----------------------
 
-* The Sky version 6. Deny slews with altitude less than 15 deg (optional).
+* The Sky version 6. Deny slews with altitude less than 15 deg (optional). `autoclose_thesky: False` makes chimera leave
+TheSky when it closes, the default is `True`.
 
 ::
 
@@ -34,6 +35,7 @@ Configuration Examples
 	  type: TheSkyTelescope
 	  thesky: 6
 	  min_alt: 15
+	  autoclose_thesky: False
 
 Tested Hardware
 ---------------

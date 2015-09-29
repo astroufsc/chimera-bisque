@@ -67,7 +67,8 @@ def com(func):
 
 class TheSkyTelescope (TelescopeBase):
     __config__ = {"model": "Software Bisque The Sky telescope",
-                  "thesky": [5, 6]}
+                  "thesky": [5, 6],
+                  "autoclose_thesky": True}
 
     def __init__(self):
         TelescopeBase.__init__(self)
@@ -126,21 +127,25 @@ class TheSkyTelescope (TelescopeBase):
     @com
     def close(self):
         try:
-            self._thesky.Disconnect()
-            self._thesky.DisconnectTelescope()
-            self._telescope.Disconnect()
-            self._thesky.Quit()
+            if self["autoclose_thesky"]:
+                self._thesky.Disconnect()
+                self._thesky.DisconnectTelescope()
+                self._telescope.Disconnect()
+                self._thesky.Quit()
+            else:
+                self.park()
         except com_error:
             self.log.error("Couldn't disconnect to TheSky.")
             return False
 
-        if self["thesky"] == 5:
-            # kill -9 on Windows
-            time.sleep(2)
-            subprocess.call("TASKKILL /IM Sky.exe /F")
-        else:
-            time.sleep(2)
-            subprocess.call("TASKKILL /IM TheSky6.exe /F")
+        if self["autoclose_thesky"]:
+            if self["thesky"] == 5:
+                # kill -9 on Windows
+                time.sleep(2)
+                subprocess.call("TASKKILL /IM Sky.exe /F")
+            else:
+                time.sleep(2)
+                subprocess.call("TASKKILL /IM TheSky6.exe /F")
 
     @com
     def getRa(self):
