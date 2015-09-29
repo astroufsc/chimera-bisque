@@ -28,10 +28,8 @@ import time
 
 from chimera.core.exceptions import ChimeraException
 from chimera.core.lock import lock
-
 from chimera.util.coord import Coord
-from chimera.util.position import Position
-
+from chimera.util.position import Position, Epoch
 from chimera.instruments.telescope import TelescopeBase
 from chimera.interfaces.telescope import PositionOutsideLimitsException, TelescopeStatus
 
@@ -68,8 +66,8 @@ def com(func):
 
 
 class TheSkyTelescope (TelescopeBase):
-
-    __config__ = {"thesky": [5, 6]}
+    __config__ = {"model": "Software Bisque The Sky telescope",
+                  "thesky": [5, 6]}
 
     def __init__(self):
         TelescopeBase.__init__(self)
@@ -198,11 +196,10 @@ class TheSkyTelescope (TelescopeBase):
         try:
             self._telescope.Asynchronous = 1
 
-            position_now = self._getFinalPosition(position)
+            position_now = position.toEpoch(Epoch.NOW)
 
             self.slewBegin(position_now)
-            self._telescope.SlewToRaDec(
-                position_now.ra.H, position_now.dec.D, "chimera")
+            self._telescope.SlewToRaDec(position_now.ra.H, position_now.dec.D, "chimera")
 
             status = TelescopeStatus.OK
 
