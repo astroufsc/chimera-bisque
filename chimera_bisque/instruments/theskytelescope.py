@@ -114,7 +114,7 @@ class TheSkyTelescope (TelescopeBase):
             if self["thesky"] == 6:
                 self._thesky.Connect()
                 self._telescope.Connect()
-                if not self["find_home"]:
+                if self["find_home"]:
                     self._telescope.FindHome()
             else:
                 self._thesky.Connect()
@@ -281,7 +281,7 @@ class TheSkyTelescope (TelescopeBase):
     @com
     def unpark(self):
         self._telescope.Connect()
-        if not self["find_home"]:
+        if self["find_home"]:
             self._telescope.FindHome()
 
     @com
