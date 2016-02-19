@@ -26,7 +26,7 @@ Configuration Examples
 ----------------------
 
 * The Sky version 6. Deny slews with altitude less than 15 deg (optional). `autoclose_thesky: False` makes chimera leave
-TheSky when it closes, the default is `True`.
+TheSky when it closes, the default is `True`. `find_home: False` disables home finding when connecting and unparking.
 
 ::
 
@@ -36,6 +36,7 @@ TheSky when it closes, the default is `True`.
 	  thesky: 6
 	  min_alt: 15
 	  autoclose_thesky: False
+	  find_home: True
 
 Tested Hardware
 ---------------

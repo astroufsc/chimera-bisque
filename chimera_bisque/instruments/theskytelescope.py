@@ -68,7 +68,8 @@ def com(func):
 class TheSkyTelescope (TelescopeBase):
     __config__ = {"model": "Software Bisque The Sky telescope",
                   "thesky": [5, 6],
-                  "autoclose_thesky": True}
+                  "autoclose_thesky": True,
+                  "find_home": True}
 
     def __init__(self):
         TelescopeBase.__init__(self)
@@ -113,7 +114,8 @@ class TheSkyTelescope (TelescopeBase):
             if self["thesky"] == 6:
                 self._thesky.Connect()
                 self._telescope.Connect()
-                self._telescope.FindHome()
+                if not self["find_home"]:
+                    self._telescope.FindHome()
             else:
                 self._thesky.Connect()
                 self._telescope.Connect()
@@ -279,7 +281,8 @@ class TheSkyTelescope (TelescopeBase):
     @com
     def unpark(self):
         self._telescope.Connect()
-        self._telescope.FindHome()
+        if not self["find_home"]:
+            self._telescope.FindHome()
 
     @com
     def isParked(self):
