@@ -1,5 +1,4 @@
-
-#! /usr/bin/env python
+# ! /usr/bin/env python
 # -*- coding: iso-8859-1 -*-
 
 # chimera - observatory automation system
@@ -25,7 +24,6 @@ import threading
 import subprocess
 import logging
 import time
-
 from chimera.core.exceptions import ChimeraException
 from chimera.core.lock import lock
 from chimera.util.coord import Coord
@@ -40,14 +38,14 @@ if sys.platform == "win32":
     # see: Python Programming On Win32, Mark Hammond and Andy Robinson, Appendix D
     #      http://support.microsoft.com/kb/q150777/
     sys.coinit_flags = 0  # pythoncom.COINIT_MULTITHREAD
-    #import pythoncom
+    # import pythoncom
 
     from win32com.client import Dispatch
     from pywintypes import com_error
 
 else:
     log.warning("Not on win32. TheSky Telescope will not work.")
-    #raise ChimeraException("Not on win32. TheSky Telescope will not work.")
+    # raise ChimeraException("Not on win32. TheSky Telescope will not work.")
 
 
 def com(func):
@@ -55,6 +53,7 @@ def com(func):
     Wrapper decorator used to handle COM objects errors.
     Every method that use COM method should be decorated.
     """
+
     def com_wrapper(*args, **kwargs):
 
         try:
@@ -65,10 +64,11 @@ def com(func):
     return com_wrapper
 
 
-class TheSkyTelescope (TelescopeBase):
+class TheSkyTelescope(TelescopeBase):
     __config__ = {"model": "Software Bisque The Sky telescope",
                   "thesky": [5, 6],
                   "autoclose_thesky": True,
+                  "site": "/Site/0",
                   "find_home": True}
 
     def __init__(self):
@@ -92,6 +92,9 @@ class TheSkyTelescope (TelescopeBase):
         self.close()
         super(TheSkyTelescope, self).__stop__()
         return True
+
+    def _getSite(self):
+        return self.getManager().getProxy(self["site"])
 
     @com
     def open(self):
@@ -172,16 +175,13 @@ class TheSkyTelescope (TelescopeBase):
     @com
     def getPositionRaDec(self):
         self._telescope.GetRaDec()
-        return Position.fromRaDec(
-            Coord.fromH(self._telescope.dRa), Coord.fromD(self._telescope.dDec)
-            )
+        return Position.fromRaDec(Coord.fromH(self._telescope.dRa), Coord.fromD(self._telescope.dDec),
+                                  epoch=Epoch.NOW).toEpoch(Epoch.J2000)
 
     @com
     def getPositionAltAz(self):
         self._telescope.GetAzAlt()
-        return Position.fromAltAz(
-            Coord.fromD(self._telescope.dAlt), Coord.fromD(self._telescope.dAz)
-            )
+        return Position.fromAltAz(Coord.fromD(self._telescope.dAlt), Coord.fromD(self._telescope.dAz))
 
     @com
     def getTargetRaDec(self):
@@ -226,35 +226,13 @@ class TheSkyTelescope (TelescopeBase):
 
         return True
 
-#    @com
-#    def slewToAltAz (self, position):
-#
-#        self._validateAltAz(position)
-#
-#        if self.isSlewing ():
-#            return False
-#
-# self._target = position
-#        self._term.clear ()
-#
-#        try:
-#            self._telescope.Asynchronous = 1
-#            self.slewBegin((position.ra, position.dec))
-#            self._telescope.SlewToAltAz (position.alt.D, position.az.D, "chimera")
-#
-#            while not self._telescope.IsSlewComplete:
-#
-#                if self._term.isSet ():
-#                    return True
-#
-#                time.sleep (self._idle_time)
-#
-#            self.slewComplete(self.getPositionRaDec())
-#
-#        except com_error:
-#            raise PositionOutsideLimitsException("Position outside limits.")
-#
-#        return True
+    @com
+    def slewToAltAz(self, position):
+        site = self._getSite()
+        if self.slewToRaDec(Position.altAzToRaDec(position, site['latitude'], site.LST()).toEpoch(Epoch.NOW)):
+            self.stopTracking()
+            return True
+        return False
 
     @com
     def abortSlew(self):
