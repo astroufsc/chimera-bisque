@@ -1,5 +1,7 @@
-# Based on http://www.ascom-standards.org/Help/Developer/html/AllMembers_T_ASCOM_DriverAccess_Camera.htm
+# Based on http://www.bisque.com/helpold/CCDSoft/ccdsoft.htm#afxcore/scripting.htm
 from chimera.core.site import datetimeFromJD
+from chimera.instruments.filterwheel import FilterWheelBase
+from chimera.interfaces.filterwheel import InvalidFilterPositionException
 
 __author__ = 'william'
 
@@ -18,16 +20,18 @@ if sys.platform == "win32":
     from win32com.client import Dispatch
     from pywintypes import com_error
 else:
-    log.warning("Not on Windows. ASCOM CAMERA will not work.")
+    log.warning("Not on Windows. CCDSoft CAMERA will not work.")
 
 
-class CCDSoftCamera(CameraBase):
+class CCDSoftCamera(CameraBase, FilterWheelBase):
     __config__ = {'model': 'CCDSoft camera',
                   'ccd_width': 4096,
                   'ccd_height': 4096,
                   'ccd_pixsize_x': 9,  # microns
                   'ccd_pixsize_y': 9,  # microns
-                  'min_exptime': 0.00001  # minimum exptime in seconds
+                  'min_exptime': 0.00001,  # minimum exptime in seconds
+                  'device': 'Software',
+                  'filter_wheel_model': 'Unknown'
                   }
 
     def __init__(self):
@@ -94,7 +98,7 @@ class CCDSoftCamera(CameraBase):
 
     def open(self):
         '''
-        Connects to ASCOM server
+        Connects to CCDSoft server
         :return:
         '''
         self.log.debug('Starting CCDSoft camera')
@@ -249,6 +253,19 @@ class CCDSoftCamera(CameraBase):
 
     def getSetPoint(self):
         return self._ccdsoft.TemperatureSetPoint
+
+    def setFilter(self, filter):
+        filterName = str(filter).upper()
+
+        if filterName not in self.getFilters():
+            raise InvalidFilterPositionException("Invalid filter %s." % filter)
+
+        self.filterChange(filter, self.getFilter())
+
+        self._ccdsoft.Position = self._getFilterPosition(filter)
+
+    def getFilter(self):
+        return self._getFilterName(self._ccdsoft.Position)
 
 
 class InvalidExposureTime(ChimeraException):
