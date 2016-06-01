@@ -262,10 +262,10 @@ class CCDSoftCamera(CameraBase, FilterWheelBase):
 
         self.filterChange(filter, self.getFilter())
 
-        self._ccdsoft.Position = self._getFilterPosition(filter)
+        self._ccdsoft.FilterIndexZeroBased = self._getFilterPosition(filter)
 
     def getFilter(self):
-        return self._getFilterName(self._ccdsoft.Position)
+        return self._getFilterName(self._ccdsoft.FilterIndexZeroBased)
 
 
 class InvalidExposureTime(ChimeraException):
