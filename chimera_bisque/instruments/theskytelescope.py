@@ -263,6 +263,10 @@ class TheSkyTelescope(TelescopeBase):
             self._telescope.FindHome()
 
     @com
+    def _findHome(self):
+        self._telescope.FindHome()
+
+    @com
     def isParked(self):
         return False
 
