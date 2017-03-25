@@ -246,11 +246,11 @@ class TheSkyTelescope(TelescopeBase):
 
     @com
     def isSlewing(self):
-        return (self._telescope.IsSlewComplete == 0)
+        return self._telescope.IsSlewComplete == 0
 
     @com
     def isTracking(self):
-        return (self._telescope.IsTracking == 1)
+        return self._telescope.IsTracking == 1
 
     @com
     def park(self):
@@ -277,25 +277,25 @@ class TheSkyTelescope(TelescopeBase):
     @com
     def moveEast(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset.AS / 60.0, 'East')
+        self._telescope.Jog(offset / 60.0, 'East')
         self._telescope.Asynchronous = 1
 
     @com
     def moveWest(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset.AS / 60.0, 'West')
+        self._telescope.Jog(offset / 60.0, 'West')
         self._telescope.Asynchronous = 1
 
     @com
     def moveNorth(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset.AS / 60.0, 'North')
+        self._telescope.Jog(offset / 60.0, 'North')
         self._telescope.Asynchronous = 1
 
     @com
     def moveSouth(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset.AS / 60.0, 'South')
+        self._telescope.Jog(offset / 60.0, 'South')
         self._telescope.Asynchronous = 1
 
     @lock
