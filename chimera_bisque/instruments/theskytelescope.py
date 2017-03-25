@@ -268,7 +268,7 @@ class TheSkyTelescope(TelescopeBase):
 
     @com
     def isParked(self):
-        return False
+        return self._telescope.IsParked != 0
 
     @com
     def startTracking(self):
