@@ -65,6 +65,9 @@ def com(func):
 
 
 class TheSkyTelescope(TelescopeBase):
+    # The Sky 6 methods documentation:
+    # https://www.bisque.com/scriptTheSkyX/classsky6_r_a_s_c_o_m_tele.html
+
     __config__ = {"model": "Software Bisque The Sky telescope",
                   "thesky": [5, 6],
                   "autoclose_thesky": True,
@@ -219,6 +222,8 @@ class TheSkyTelescope(TelescopeBase):
 
                 time.sleep(self._idle_time)
 
+            self.startTracking()
+
             self.slewComplete(self.getPositionRaDec(), status)
 
         except com_error:
@@ -268,6 +273,7 @@ class TheSkyTelescope(TelescopeBase):
 
     @com
     def isParked(self):
+        # This information is not available on TheSky ver <= 6.
         return False
 
     @com
