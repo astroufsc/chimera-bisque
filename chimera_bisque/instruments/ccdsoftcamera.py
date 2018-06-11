@@ -1,4 +1,5 @@
 # Based on http://www.bisque.com/helpold/CCDSoft/ccdsoft.htm#afxcore/scripting.htm
+import time
 from chimera.core.site import datetimeFromJD
 from chimera.instruments.filterwheel import FilterWheelBase
 from chimera.interfaces.filterwheel import InvalidFilterPositionException
@@ -270,3 +271,19 @@ class CCDSoftCamera(CameraBase, FilterWheelBase):
 
 class InvalidExposureTime(ChimeraException):
     pass
+
+
+if __name__ == '__main__':
+    ccdsoft = Dispatch("CCDSoft.Camera")
+    ccdsoft.Connect()
+    ccdsoft.Asynchronous = 0
+    ccdsoft.ImageReduction = 0  # Disable any possible data reduction
+    ccdsoft.ExposureTime = 1.0
+    ccdsoft.Frame = 1
+    ccdsoft.TakeImage()
+    while not bool(ccdsoft.IsExposureComplete):
+        time.sleep(.1)
+    print 'Done taking image.'
+    img = Dispatch("CCDSoft.Image")
+    img.AttachToActive()
+    pix = np.transpose(np.array(img.DataArray))
