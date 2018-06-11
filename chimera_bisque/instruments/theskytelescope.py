@@ -24,7 +24,7 @@ import threading
 import subprocess
 import logging
 import time
-from chimera.core.exceptions import ChimeraException
+from chimera.core.exceptions import ChimeraException, ObjectTooLowException
 from chimera.core.lock import lock
 from chimera.util.coord import Coord
 from chimera.util.position import Position, Epoch
@@ -88,6 +88,7 @@ class TheSkyTelescope(TelescopeBase):
     def __start__(self):
         self.open()
         super(TheSkyTelescope, self).__start__()
+        self.setHz(1)
         return True
 
     @com
@@ -312,3 +313,19 @@ class TheSkyTelescope(TelescopeBase):
     def syncRaDec(self, position):
         self._telescope.Sync(position.ra.H, position.dec.D, "chimera")
         self.syncComplete(position)
+
+    def control(self):
+        try:
+            if not self.isSlewing() and self.isTracking():
+                try:
+                    self._validateAltAz(self.getPositionAltAz())
+                except ObjectTooLowException, msg:
+                    self.log.exception(msg)
+                    self.stopTracking()
+                    self.log.debug('Tracking stopped.')
+                    self.trackingStopped(self.getPositionRaDec(), TelescopeStatus.OBJECT_TOO_LOW)
+        except ChimeraException, msg:
+            # If telescope is not connected (parked) it returns a ChimeraException which can be ignored.
+            # self.log.exception(msg)
+            pass
+        return True
