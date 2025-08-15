@@ -152,10 +152,10 @@ class TheSkyTelescope(TelescopeBase):
             if self["thesky"] == 5:
                 # kill -9 on Windows
                 time.sleep(2)
-                subprocess.call(["TASKKILL", "/IM", "Sky.exe", "/F"])
+                subprocess.run(["TASKKILL", "/IM", "Sky.exe", "/F"])
             else:
                 time.sleep(2)
-                subprocess.call(["TASKKILL", "/IM", "TheSky6.exe", "/F"])
+                subprocess.run(["TASKKILL", "/IM", "TheSky6.exe", "/F"])
 
     @com
     def get_ra(self):
