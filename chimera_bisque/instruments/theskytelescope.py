@@ -58,7 +58,7 @@ def com(func):
 
         try:
             return func(*args, **kwargs)
-        except com_error, e:
+        except com_error as e:
             raise ChimeraException(str(e))
 
     return com_wrapper
@@ -67,6 +67,7 @@ def com(func):
 class TheSkyTelescope(TelescopeBase):
     # The Sky 6 methods documentation:
     # https://www.bisque.com/scriptTheSkyX/classsky6_r_a_s_c_o_m_tele.html
+    # https://web.archive.org/web/20170613133053/https://www.bisque.com/scriptTheSkyX/classsky6_r_a_s_c_o_m_tele.html
 
     __config__ = {"model": "Software Bisque The Sky telescope",
                   "thesky": [5, 6],
@@ -88,7 +89,7 @@ class TheSkyTelescope(TelescopeBase):
     def __start__(self):
         self.open()
         super(TheSkyTelescope, self).__start__()
-        self.setHz(1)
+        self.set_hz(1)
         return True
 
     @com
@@ -97,8 +98,8 @@ class TheSkyTelescope(TelescopeBase):
         super(TheSkyTelescope, self).__stop__()
         return True
 
-    def _getSite(self):
-        return self.getManager().getProxy(self["site"])
+    def _get_site(self):
+        return self.get_manager().get_proxy(self["site"])
 
     @com
     def open(self):
@@ -129,7 +130,7 @@ class TheSkyTelescope(TelescopeBase):
 
             return True
 
-        except com_error, e:
+        except com_error as e:
             self.log.error("Couldn't connect to TheSky. (%s)" % e)
             return False
 
@@ -151,81 +152,82 @@ class TheSkyTelescope(TelescopeBase):
             if self["thesky"] == 5:
                 # kill -9 on Windows
                 time.sleep(2)
-                subprocess.call("TASKKILL /IM Sky.exe /F")
+                subprocess.call(["TASKKILL", "/IM", "Sky.exe", "/F"])
             else:
                 time.sleep(2)
-                subprocess.call("TASKKILL /IM TheSky6.exe /F")
+                subprocess.call(["TASKKILL", "/IM", "TheSky6.exe", "/F"])
 
     @com
-    def getRa(self):
+    def get_ra(self):
         self._telescope.GetRaDec()
-        return Coord.fromH(self._telescope.dRa)
+        return self._telescope.dRa
 
     @com
-    def getDec(self):
+    def get_dec(self):
         self._telescope.GetRaDec()
-        return Coord.fromD(self._telescope.dDec)
+        return self._telescope.dDec
 
     @com
-    def getAz(self):
+    def get_az(self):
         self._telescope.GetAzAlt()
-        return Coord.fromD(self._telescope.dAz)
+        return self._telescope.dAz
 
     @com
-    def getAlt(self):
+    def get_alt(self):
         self._telescope.GetAzAlt()
-        return Coord.fromD(self._telescope.dAlt)
+        return self._telescope.dAlt
 
     @com
-    def getPositionRaDec(self):
+    def get_position_ra_dec(self):
         self._telescope.GetRaDec()
-        return Position.fromRaDec(Coord.fromH(self._telescope.dRa), Coord.fromD(self._telescope.dDec),
-                                  epoch=Epoch.NOW).toEpoch(Epoch.J2000)
+        return self._telescope.dRa, self._telescope.dDec
 
     @com
-    def getPositionAltAz(self):
+    def get_position_alt_az(self):
         self._telescope.GetAzAlt()
-        return Position.fromAltAz(Coord.fromD(self._telescope.dAlt), Coord.fromD(self._telescope.dAz))
+        return self._telescope.dAlt, self._telescope.dAz
 
     @com
-    def getTargetRaDec(self):
+    def get_target_ra_dec(self):
         if not self._target:
-            return self.getPositionRaDec()
-        return self._target
+            return self.get_position_ra_dec()
+        return self._target.ra.h, self._target.dec.d
 
     @com
-    def slewToRaDec(self, position):
+    def slew_to_ra_dec(self, ra, dec):
 
-        self._validateRaDec(position)
+        self._validate_ra_dec(ra, dec)
 
-        if self.isSlewing():
+        if self.is_slewing():
             return False
 
-        self._target = position
+        self._target = Position.from_ra_dec(ra, dec)
         self._abort.clear()
 
         try:
             self._telescope.Asynchronous = 1
 
-            position_now = position.toEpoch(Epoch.NOW)
+            position_now = self._target.toEpoch(Epoch.NOW)
+            ra_now = position_now.ra.H
+            dec_now = position_now.dec.D
 
-            self.slewBegin(position_now)
-            self._telescope.SlewToRaDec(position_now.ra.H, position_now.dec.D, "chimera")
+            self.slew_begin(ra_now, dec_now, TelescopeStatus.OK)
+            self._telescope.SlewToRaDec(ra_now, dec_now, "chimera")
 
             status = TelescopeStatus.OK
 
             while not self._telescope.IsSlewComplete:
 
                 # [ABORT POINT]
-                if self._abort.isSet():
+                if self._abort.is_set():
                     status = TelescopeStatus.ABORTED
                     break
 
                 time.sleep(self._idle_time)
 
-            self.startTracking()
+            self.start_tracking()
 
-            self.slewComplete(self.getPositionRaDec(), status)
+            self.slew_complete(*self.get_position_ra_dec(), status)
 
         except com_error:
             raise PositionOutsideLimitsException("Position outside limits.")
@@ -233,16 +235,16 @@ class TheSkyTelescope(TelescopeBase):
         return True
 
     @com
-    def slewToAltAz(self, position):
-        site = self._getSite()
-        if self.slewToRaDec(Position.altAzToRaDec(position, site['latitude'], site.LST()).toEpoch(Epoch.NOW)):
-            self.stopTracking()
+    def slew_to_alt_az(self, position):
+        site = self._get_site()
+        if self.slew_to_ra_dec(Position.alt_az_to_ra_dec(position, site['latitude'], site.lst()).to_epoch(Epoch.NOW)):
+            self.stop_tracking()
             return True
         return False
 
     @com
-    def abortSlew(self):
-        if self.isSlewing():
+    def abort_slew(self):
+        if self.is_slewing():
             self._abort.set()
             time.sleep(self._idle_time)
             self._telescope.Abort()
@@ -251,11 +253,11 @@ class TheSkyTelescope(TelescopeBase):
         return False
 
     @com
-    def isSlewing(self):
+    def is_slewing(self):
         return self._telescope.IsSlewComplete == 0
 
     @com
-    def isTracking(self):
+    def is_tracking(self):
         return self._telescope.IsTracking == 1
 
     @com
@@ -269,62 +271,62 @@ class TheSkyTelescope(TelescopeBase):
             self._telescope.FindHome()
 
     @com
-    def _findHome(self):
+    def _find_home(self):
         self._telescope.FindHome()
 
     @com
-    def isParked(self):
+    def is_parked(self):
         # This information is not available on TheSky ver <= 6.
         return False
 
     @com
-    def startTracking(self):
+    def start_tracking(self):
         self._telescope.SetTracking(1, 1, 0, 0)
 
     @com
-    def stopTracking(self):
+    def stop_tracking(self):
         self._telescope.SetTracking(0, 1, 0, 0)
 
     @com
-    def moveEast(self, offset, slewRate=None):
+    def move_east(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
         self._telescope.Jog(offset / 60.0, 'East')
         self._telescope.Asynchronous = 1
 
     @com
-    def moveWest(self, offset, slewRate=None):
+    def move_west(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
         self._telescope.Jog(offset / 60.0, 'West')
         self._telescope.Asynchronous = 1
 
     @com
-    def moveNorth(self, offset, slewRate=None):
+    def move_north(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
         self._telescope.Jog(offset / 60.0, 'North')
         self._telescope.Asynchronous = 1
 
     @com
-    def moveSouth(self, offset, slewRate=None):
+    def move_south(self, offset, slewRate=None):
         self._telescope.Asynchronous = 0
         self._telescope.Jog(offset / 60.0, 'South')
         self._telescope.Asynchronous = 1
 
     @lock
-    def syncRaDec(self, position):
-        self._telescope.Sync(position.ra.H, position.dec.D, "chimera")
-        self.syncComplete(position)
+    def sync_ra_dec(self, ra, dec):
+        self._telescope.Sync(ra, dec, "chimera")
+        self.sync_complete(ra, dec)
 
     def control(self):
         try:
-            if not self.isSlewing() and self.isTracking():
+            if not self.is_slewing() and self.is_tracking():
                 try:
-                    self._validateAltAz(self.getPositionAltAz())
-                except ObjectTooLowException, msg:
+                    self._validateAltAz(self.get_position_alt_az())
+                except ObjectTooLowException as msg:
                     self.log.exception(msg)
-                    self.stopTracking()
+                    self.stop_tracking()
                     self.log.debug('Tracking stopped.')
-                    self.trackingStopped(self.getPositionRaDec(), TelescopeStatus.OBJECT_TOO_LOW)
-        except ChimeraException, msg:
+                    self.tracking_stopped(self.get_position_ra_dec(), TelescopeStatus.OBJECT_TOO_LOW)
+        except ChimeraException as msg:
             # If telescope is not connected (parked) it returns a ChimeraException which can be ignored.
             # self.log.exception(msg)
             pass
