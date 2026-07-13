@@ -1,6 +1,6 @@
 # Bisque
 
-Chimera plugin for Software Bisque TheSky/TheSkyX telescopes and CCDSoft cameras
+Chimera plugin for Software Bisque TheSky/TheSkyX telescopes
 
 This is a plugin for the [Chimera observatory control system](https://github.com/astroufsc/chimera).
 
@@ -33,21 +33,20 @@ instruments:
     - name: telescope
       type: TheSkyTelescope
       thesky: 6
-
-    # CCDSoft camera via Windows COM (requires Windows + the `windows` extra)
-    - name: camera
-      type: CCDSoftCamera
 ```
 
 The plugin ships two connection modes:
 
 - **`TheSkyXTelescope`** talks to TheSkyX over its TCP/IP JavaScript scripting
   interface. It is pure Python and works on any platform.
-- **`TheSkyTelescope`** and **`CCDSoftCamera`** drive TheSky 5/6 and CCDSoft
-  through Windows COM automation. These only work on Windows with the optional
-  `windows` extra installed (`uv sync --extra windows`, which pulls in
-  `pywin32`). The plugin still installs and imports on non-Windows machines;
-  the COM drivers simply cannot connect there.
+- **`TheSkyTelescope`** drives TheSky 5/6 through Windows COM automation. It
+  only works on Windows with the optional `windows` extra installed
+  (`uv sync --extra windows`, which pulls in `pywin32`). The plugin still
+  installs and imports on non-Windows machines; the COM driver simply cannot
+  connect there.
+
+The obsolete `CCDSoftCamera` driver was removed; it is still available on the
+`legacy` branch and in the git history if ever needed.
 
 
 
