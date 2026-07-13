@@ -1,0 +1,51 @@
+[project]
+name = "chimera_bisque"
+version = "0.1.0"
+description = "Chimera plugin for Software Bisque TheSky/TheSkyX telescopes and CCDSoft cameras"
+license = "GPL-2.0-or-later"
+authors = [
+    { name = "William Schoenell", email = "wschoenell@gmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "chimera",
+    "numpy>=2.1",
+    "astropy>=7.0",
+]
+
+[project.optional-dependencies]
+# COM automation for TheSky5/6 and CCDSoft. Windows-only; the plugin installs
+# and imports on any platform, but the COM drivers only work with these present.
+windows = [
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chimera_bisque"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = [".history"]
+
+[tool.ruff.lint]
+select = ["N", "I", "UP", "F"]
+
+[tool.ruff.lint.flake8-copyright]
+notice-rgx = "(?i)# SPDX-FileCopyrightText:\\s\\d{4}(-(\\d{4}|present))*"
+
+[tool.uv.sources]
+chimera = { git = "https://github.com/astroufsc/chimera.git" }

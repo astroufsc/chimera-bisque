@@ -1,7 +1,9 @@
+# SPDX-FileCopyrightText: 2025-present William Schoenell <wschoenell@gmail.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Pure-socket driver for the TheSkyX TCP/IP JavaScript scripting interface."""
+
 import logging
-import time
-from socket import socket, AF_INET, SOCK_STREAM, SHUT_RDWR, error as socket_error
-from typing import Optional, Tuple
+from socket import AF_INET, SHUT_RDWR, SOCK_STREAM, socket
 
 
 class TheSkyXConnectionError(Exception):
@@ -50,12 +52,12 @@ class TheSkyXDriver:
             result = response.split("|")[0].strip()
             self.log.debug(f"Parsed result: {result}")
 
-            if 'error' in result.lower():
+            if "error" in result.lower():
                 raise TheSkyXCommandError(f"TheSkyX error response: {result}")
 
             return result
 
-        except socket_error as e:
+        except OSError as e:
             raise TheSkyXConnectionError(
                 f"Failed to connect to TheSkyX at {self.host}:{self.port}: {e}"
             )
@@ -106,7 +108,7 @@ class TheSkyXDriver:
         except Exception as e:
             self.log.error(f"Error disconnecting from TheSkyX: {e}")
 
-    def get_ra_dec(self) -> Tuple[float, float]:
+    def get_ra_dec(self) -> tuple[float, float]:
         """Get current telescope RA and Dec"""
         if not self._is_connected:
             raise TheSkyXConnectionError("Not connected to TheSkyX")
@@ -274,13 +276,13 @@ class TheSkyXDriver:
             raise TheSkyXConnectionError("Not connected to TheSkyX")
 
         try:
-            command = f"""
+            command = """
                 var Out;
                 sky6RASCOMTele.SetParkPosition();
                 Out = "undefined";
             """
             self._send_command(command)
-            self.log.info(f"Parking position set")
+            self.log.info("Parking position set")
         except TheSkyXConnectionError:
             raise
         except Exception as e:

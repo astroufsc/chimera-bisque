@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2025-present William Schoenell <wschoenell@gmail.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Chimera telescope driver for TheSkyX over its TCP/IP scripting interface."""
+
 import threading
 import time
 
@@ -5,9 +9,13 @@ from chimera.core.lock import lock
 from chimera.instruments.telescope import TelescopeBase
 from chimera.interfaces.telescope import TelescopeStatus
 from chimera.util.coord import Coord
-from chimera.util.position import Position, System
+from chimera.util.position import Position
 
-from theskyxdriver import TheSkyXDriver, TheSkyXConnectionError, TheSkyXCommandError
+from chimera_bisque.instruments.theskyxdriver import (
+    TheSkyXCommandError,
+    TheSkyXConnectionError,
+    TheSkyXDriver,
+)
 
 
 class TheSkyXTelescope(TelescopeBase):
@@ -72,7 +80,7 @@ class TheSkyXTelescope(TelescopeBase):
             raise NotImplementedError(f"Only J2000 epoch is supported. Got: {epoch}")
 
         self._validate_ra_dec(ra, dec)
-        self.slew_begin(ra, dec)
+        self.slew_begin(ra, dec, epoch)
         self._abort.clear()
 
         try:
@@ -251,8 +259,9 @@ class TheSkyXTelescope(TelescopeBase):
 
     @lock
     def set_park_position(self, position: Position):
-        raise NotImplementedError("Parking position is to be set manually in TheSkyX GUI")
-
+        raise NotImplementedError(
+            "Parking position is to be set manually in TheSkyX GUI"
+        )
 
     @lock
     def park(self) -> None:
@@ -263,7 +272,7 @@ class TheSkyXTelescope(TelescopeBase):
         try:
             self._driver.park()
             self._parked = True
-            self.park_complete(TelescopeStatus.OK)
+            self.park_complete()
         except TheSkyXCommandError as e:
             raise RuntimeError(f"Failed to park telescope: {e}")
 
