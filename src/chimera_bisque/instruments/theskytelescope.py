@@ -1,35 +1,21 @@
-# ! /usr/bin/env python
-# -*- coding: iso-8859-1 -*-
+# SPDX-FileCopyrightText: 2007-present P. Henrique Silva <henrique@astro.ufsc.br>
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Chimera telescope driver for TheSky 5/6 through Windows COM automation."""
 
-# chimera - observatory automation system
-# Copyright (C) 2007  P. Henrique Silva <henrique@astro.ufsc.br>
-
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-# 02110-1301, USA.
-
+import logging
+import subprocess
 import sys
 import threading
-import subprocess
-import logging
 import time
+
 from chimera.core.exceptions import ChimeraException, ObjectTooLowException
 from chimera.core.lock import lock
-from chimera.util.coord import Coord
-from chimera.util.position import Position, Epoch
 from chimera.instruments.telescope import TelescopeBase
-from chimera.interfaces.telescope import PositionOutsideLimitsException, TelescopeStatus
+from chimera.interfaces.telescope import (
+    PositionOutsideLimitsException,
+    TelescopeStatus,
+)
+from chimera.util.position import Epoch, Position
 
 log = logging.getLogger(__name__)
 
@@ -38,24 +24,24 @@ if sys.platform == "win32":
     # see: Python Programming On Win32, Mark Hammond and Andy Robinson, Appendix D
     #      http://support.microsoft.com/kb/q150777/
     sys.coinit_flags = 0  # pythoncom.COINIT_MULTITHREAD
-    # import pythoncom
 
-    from win32com.client import Dispatch
     from pywintypes import com_error
-
+    from win32com.client import Dispatch
 else:
-    log.warning("Not on win32. TheSky Telescope will not work.")
-    # raise ChimeraException("Not on win32. TheSky Telescope will not work.")
+    log.warning("Not on win32. TheSky COM telescope driver will not work.")
+    # Placeholders so the module imports on non-Windows; the COM drivers only
+    # work when pywin32 and TheSky are present (see the `windows` extra).
+    Dispatch = None
+    com_error = Exception
 
 
 def com(func):
     """
-    Wrapper decorator used to handle COM objects errors.
-    Every method that use COM method should be decorated.
+    Wrapper decorator used to handle COM object errors.
+    Every method that uses a COM method should be decorated.
     """
 
     def com_wrapper(*args, **kwargs):
-
         try:
             return func(*args, **kwargs)
         except com_error as e:
@@ -69,11 +55,13 @@ class TheSkyTelescope(TelescopeBase):
     # https://www.bisque.com/scriptTheSkyX/classsky6_r_a_s_c_o_m_tele.html
     # https://web.archive.org/web/20170613133053/https://www.bisque.com/scriptTheSkyX/classsky6_r_a_s_c_o_m_tele.html
 
-    __config__ = {"model": "Software Bisque The Sky telescope",
-                  "thesky": [5, 6],
-                  "autoclose_thesky": True,
-                  "site": "/Site/0",
-                  "find_home": True}
+    __config__ = {
+        "model": "Software Bisque The Sky telescope",
+        "thesky": 6,
+        "autoclose_thesky": True,
+        "site": "/Site/0",
+        "find_home": True,
+    }
 
     def __init__(self):
         TelescopeBase.__init__(self)
@@ -88,22 +76,21 @@ class TheSkyTelescope(TelescopeBase):
     @com
     def __start__(self):
         self.open()
-        super(TheSkyTelescope, self).__start__()
+        super().__start__()
         self.set_hz(1)
         return True
 
     @com
     def __stop__(self):
         self.close()
-        super(TheSkyTelescope, self).__stop__()
+        super().__stop__()
         return True
 
     def _get_site(self):
-        return self.get_manager().get_proxy(self["site"])
+        return self.site()
 
     @com
     def open(self):
-
         try:
             if self["thesky"] == 6:
                 self._thesky = Dispatch("TheSky6.RASCOMTheSky")
@@ -113,12 +100,10 @@ class TheSkyTelescope(TelescopeBase):
                 self._telescope = Dispatch("TheSky.RASCOMTele")
 
         except com_error:
-            self.log.error(
-                "Couldn't instantiate TheSky %d COM objects." % self["thesky"])
+            self.log.error(f"Couldn't instantiate TheSky {self['thesky']} COM objects.")
             return False
 
         try:
-
             if self["thesky"] == 6:
                 self._thesky.Connect()
                 self._telescope.Connect()
@@ -131,7 +116,7 @@ class TheSkyTelescope(TelescopeBase):
             return True
 
         except com_error as e:
-            self.log.error("Couldn't connect to TheSky. (%s)" % e)
+            self.log.error(f"Couldn't connect to TheSky. ({e})")
             return False
 
     @com
@@ -145,7 +130,7 @@ class TheSkyTelescope(TelescopeBase):
             else:
                 self.park()
         except com_error:
-            self.log.error("Couldn't disconnect to TheSky.")
+            self.log.error("Couldn't disconnect from TheSky.")
             return False
 
         if self["autoclose_thesky"]:
@@ -195,7 +180,6 @@ class TheSkyTelescope(TelescopeBase):
 
     @com
     def slew_to_ra_dec(self, ra, dec):
-
         self._validate_ra_dec(ra, dec)
 
         if self.is_slewing():
@@ -207,17 +191,16 @@ class TheSkyTelescope(TelescopeBase):
         try:
             self._telescope.Asynchronous = 1
 
-            position_now = self._target.toEpoch(Epoch.NOW)
+            position_now = self._target.to_epoch(Epoch.NOW)
             ra_now = position_now.ra.H
             dec_now = position_now.dec.D
 
-            self.slew_begin(ra_now, dec_now, TelescopeStatus.OK)
+            self.slew_begin(ra_now, dec_now, Epoch.NOW)
             self._telescope.SlewToRaDec(ra_now, dec_now, "chimera")
 
             status = TelescopeStatus.OK
 
             while not self._telescope.IsSlewComplete:
-
                 # [ABORT POINT]
                 if self._abort.is_set():
                     status = TelescopeStatus.ABORTED
@@ -235,9 +218,11 @@ class TheSkyTelescope(TelescopeBase):
         return True
 
     @com
-    def slew_to_alt_az(self, position):
+    def slew_to_alt_az(self, alt, az):
+        self._validate_alt_az(alt, az)
         site = self._get_site()
-        if self.slew_to_ra_dec(Position.alt_az_to_ra_dec(position, site['latitude'], site.lst()).to_epoch(Epoch.NOW)):
+        ra, dec = site.alt_az_to_ra_dec(alt, az)
+        if self.slew_to_ra_dec(ra, dec):
             self.stop_tracking()
             return True
         return False
@@ -288,27 +273,27 @@ class TheSkyTelescope(TelescopeBase):
         self._telescope.SetTracking(0, 1, 0, 0)
 
     @com
-    def move_east(self, offset, slewRate=None):
+    def move_east(self, offset, rate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset / 60.0, 'East')
+        self._telescope.Jog(offset / 60.0, "East")
         self._telescope.Asynchronous = 1
 
     @com
-    def move_west(self, offset, slewRate=None):
+    def move_west(self, offset, rate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset / 60.0, 'West')
+        self._telescope.Jog(offset / 60.0, "West")
         self._telescope.Asynchronous = 1
 
     @com
-    def move_north(self, offset, slewRate=None):
+    def move_north(self, offset, rate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset / 60.0, 'North')
+        self._telescope.Jog(offset / 60.0, "North")
         self._telescope.Asynchronous = 1
 
     @com
-    def move_south(self, offset, slewRate=None):
+    def move_south(self, offset, rate=None):
         self._telescope.Asynchronous = 0
-        self._telescope.Jog(offset / 60.0, 'South')
+        self._telescope.Jog(offset / 60.0, "South")
         self._telescope.Asynchronous = 1
 
     @lock
@@ -320,14 +305,14 @@ class TheSkyTelescope(TelescopeBase):
         try:
             if not self.is_slewing() and self.is_tracking():
                 try:
-                    self._validateAltAz(self.get_position_alt_az())
+                    self._validate_alt_az(*self.get_position_alt_az())
                 except ObjectTooLowException as msg:
                     self.log.exception(msg)
                     self.stop_tracking()
-                    self.log.debug('Tracking stopped.')
-                    self.tracking_stopped(self.get_position_ra_dec(), TelescopeStatus.OBJECT_TOO_LOW)
-        except ChimeraException as msg:
-            # If telescope is not connected (parked) it returns a ChimeraException which can be ignored.
-            # self.log.exception(msg)
+                    self.log.debug("Tracking stopped.")
+                    self.tracking_stopped(TelescopeStatus.OBJECT_TOO_LOW)
+        except ChimeraException:
+            # If the telescope is not connected (parked) it raises a
+            # ChimeraException which can be ignored.
             pass
         return True

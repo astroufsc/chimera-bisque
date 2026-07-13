@@ -1,95 +1,94 @@
-# Based on http://www.bisque.com/helpold/CCDSoft/ccdsoft.htm#afxcore/scripting.htm
-import time
-from chimera.core.site import datetimeFromJD
-from chimera.instruments.filterwheel import FilterWheelBase
-from chimera.interfaces.filterwheel import InvalidFilterPositionException
+# SPDX-FileCopyrightText: 2010-present William Schoenell <wschoenell@gmail.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Chimera camera/filter-wheel driver for CCDSoft through Windows COM.
 
-__author__ = 'william'
+Based on http://www.bisque.com/helpold/CCDSoft/ccdsoft.htm#afxcore/scripting.htm
+"""
 
-import sys
 import logging
+import sys
+
 import numpy as np
+from astropy.time import Time
+from chimera.core.exceptions import ChimeraException
 from chimera.core.lock import lock
 from chimera.instruments.camera import CameraBase
-from chimera.core.exceptions import ChimeraException
-from chimera.interfaces.camera import CameraFeature, CCD, ReadoutMode, CameraStatus, Shutter
+from chimera.instruments.filterwheel import FilterWheelBase
+from chimera.interfaces.camera import (
+    CameraFeature,
+    CameraStatus,
+    ReadoutMode,
+    Shutter,
+)
+from chimera.interfaces.filterwheel import InvalidFilterPositionException
 
 log = logging.getLogger(__name__)
 
 if sys.platform == "win32":
     sys.coinit_flags = 0
-    from win32com.client import Dispatch
     from pywintypes import com_error
+    from win32com.client import Dispatch
 else:
-    log.warning("Not on Windows. CCDSoft CAMERA will not work.")
+    log.warning("Not on win32. CCDSoft COM camera driver will not work.")
+    # Placeholders so the module imports on non-Windows; the COM drivers only
+    # work when pywin32 and CCDSoft are present (see the `windows` extra).
+    Dispatch = None
+    com_error = Exception
+
+
+class InvalidExposureTime(ChimeraException):
+    pass
 
 
 class CCDSoftCamera(CameraBase, FilterWheelBase):
-    __config__ = {'model': 'CCDSoft camera',
-                  'ccd_width': 4096,
-                  'ccd_height': 4096,
-                  'ccd_pixsize_x': 9,  # microns
-                  'ccd_pixsize_y': 9,  # microns
-                  'min_exptime': 0.00001,  # minimum exptime in seconds
-                  'device': 'Software',
-                  'filter_wheel_model': 'Unknown'
-                  }
+    __config__ = {
+        "model": "CCDSoft camera",
+        "ccd_width": 4096,
+        "ccd_height": 4096,
+        "ccd_pixsize_x": 9,  # microns
+        "ccd_pixsize_y": 9,  # microns
+        "min_exptime": 0.00001,  # minimum exptime in seconds
+        "device": "Software",
+        "filter_wheel_model": "Unknown",
+    }
 
     def __init__(self):
         CameraBase.__init__(self)
 
+        self._ccdsoft = None
         self._n_attempts = 0
 
-    def __start__(self):
+        self._binnings = {"1x1": 0, "2x2": 1, "3x3": 2, "9x9": 3, "10x10": 4}
 
+        self._binning_factors = {"1x1": 1, "2x2": 2, "3x3": 3, "9x9": 9, "10x10": 10}
+
+        self._supports = {
+            CameraFeature.TEMPERATURE_CONTROL: True,
+            CameraFeature.PROGRAMMABLE_GAIN: False,
+            CameraFeature.PROGRAMMABLE_OVERSCAN: False,
+            CameraFeature.PROGRAMMABLE_FAN: False,
+            CameraFeature.PROGRAMMABLE_LEDS: False,
+            CameraFeature.PROGRAMMABLE_BIAS_LEVEL: False,
+        }
+
+        self._readout_modes = {}
+
+    def __start__(self):
         self.open()
 
-        # my internal CCD code
-        self._MY_CCD = 1 << 1
-        self._MY_ADC = 1 << 2
-        self._MY_READOUT_MODE = 1 << 3
+        self._readout_modes = {}
+        for binning, bin_id in self._binnings.items():
+            vbin, hbin = [int(v) for v in binning.split("x")]
+            readout_mode = ReadoutMode()
+            readout_mode.mode = bin_id
+            # TODO: readout_mode.gain = self._ccdsoft.ElectronsPerADU
+            readout_mode.width = self["ccd_width"] // hbin
+            readout_mode.height = self["ccd_height"] // vbin
+            readout_mode.pixel_width = self["ccd_pixsize_x"] * hbin
+            readout_mode.pixel_height = self["ccd_pixsize_y"] * vbin
+            self._readout_modes[bin_id] = readout_mode
 
-        self._ccds = {self._MY_CCD: CCD.IMAGING}
-
-        self._adcs = {"12 bits": self._MY_ADC}
-
-        self._binnings = {"1x1": 0,
-                          "2x2": 1,
-                          "3x3": 2,
-                          "9x9": 3,
-                          "10x10": 4}
-
-        self._binning_factors = {"1x1": 1,
-                                 "2x2": 2,
-                                 "3x3": 3,
-                                 "9x9": 9,
-                                 "10x10": 10}
-
-        self._supports = {CameraFeature.TEMPERATURE_CONTROL: True,
-                          CameraFeature.PROGRAMMABLE_GAIN: False,
-                          CameraFeature.PROGRAMMABLE_OVERSCAN: False,
-                          CameraFeature.PROGRAMMABLE_FAN: False,
-                          CameraFeature.PROGRAMMABLE_LEDS: False,
-                          CameraFeature.PROGRAMMABLE_BIAS_LEVEL: False}
-
-        self._readout_modes = [0]
-
-        self._readoutModes = {self._MY_CCD: {}}
-        i_mode_tot = 0
-        for i_mode in range(len(self._readout_modes)):
-            for binning, i_mode in self._binnings.iteritems():
-                readoutMode = ReadoutMode()
-                vbin, hbin = [int(v) for v in binning.split('x')]
-                readoutMode.mode = i_mode
-                # TODO:  readoutMode.gain = self._ccdsoft.ElectronsPerADU
-                readoutMode.width = self["ccd_width"] / hbin
-                readoutMode.height = self["ccd_height"] / vbin
-                readoutMode.pixelWidth = self['ccd_pixsize_x'] * hbin
-                readoutMode.pixelHeight = self['ccd_pixsize_y'] * vbin
-                self._readoutModes[self._MY_CCD].update({i_mode: readoutMode})
-                i_mode_tot += 1
-
-        self.setHz(2)
+        self.set_hz(2)
 
     def __stop__(self):
         self.close()
@@ -98,11 +97,8 @@ class CCDSoftCamera(CameraBase, FilterWheelBase):
         self._ccdsoft.Disconnect()
 
     def open(self):
-        '''
-        Connects to CCDSoft server
-        :return:
-        '''
-        self.log.debug('Starting CCDSoft camera')
+        """Connect to the CCDSoft server."""
+        self.log.debug("Starting CCDSoft camera")
         self._ccdsoft = Dispatch("CCDSoft.Camera")
         try:
             self._ccdsoft.Connect()
@@ -111,40 +107,29 @@ class CCDSoftCamera(CameraBase, FilterWheelBase):
             raise ChimeraException("Could not configure camera.")
 
     def _expose(self, request):
-        """
-        .. method:: expose(request=None, **kwargs)
+        self.expose_begin(request)
 
-            Start an exposure based upon the specified image request or
-            create a new image request from kwargs
-
-            :keyword request: ImageRequest object
-            :type request: ImageRequest
-        """
-        self.exposeBegin(request)
-
-        if request['shutter'] == Shutter.OPEN:
+        if request["shutter"] == Shutter.OPEN:
             img_type = 1  # light
-        elif request['shutter'] == Shutter.CLOSE:
+        elif request["shutter"] == Shutter.CLOSE:
             img_type = 3  # dark
-        elif request['shutter'] == Shutter.LEAVE_AS_IS:
-            raise ChimeraException('Not supported to leave as is shutter.')
+        else:
+            raise ChimeraException("Not supported to leave the shutter as is.")
 
-        # Can only take images of exptime > minexptime.
-        if request["exptime"] < self['min_exptime']:
-            request["exptime"] = self['min_exptime']
+        # Can only take images of exptime > min_exptime.
+        if request["exptime"] < self["min_exptime"]:
+            request["exptime"] = self["min_exptime"]
 
-        mode, binning, top, left, width, height = self._getReadoutModeInfo(request["binning"], request["window"])
+        mode, binning, top, left, width, height = self._get_readout_mode_info(
+            request["binning"], request["window"]
+        )
         # Binning
-        vbin, hbin = [int(v) for v in binning.split('x')]
+        vbin, hbin = [int(v) for v in binning.split("x")]
         self._ccdsoft.BinX = vbin
         self._ccdsoft.BinY = hbin
 
         # TODO: Subframing
         self._ccdsoft.Subframe = False
-        # self._ccdsoft.SubframeBottom = top
-        # self._ccdsoft.SubframeLeft = left
-        # self._ccdsoft.SubframeRight = right
-        # self._ccdsoft.SubframeTop = top
 
         # Start Exposure...
         self._ccdsoft.ImageReduction = 0  # Disable any possible data reduction
@@ -156,78 +141,80 @@ class CCDSoftCamera(CameraBase, FilterWheelBase):
 
         while not bool(self._ccdsoft.IsExposureComplete):
             # [ABORT POINT]
-            if self.abort.isSet():
+            if self.abort.is_set():
                 self._ccdsoft.Abort()
                 status = CameraStatus.ABORTED
                 break
 
-        self.exposeComplete(request, status)
+        self.expose_complete(request, status)
 
     def _readout(self, request):
-        self.readoutBegin(request)
+        self.readout_begin(request)
 
         img = Dispatch("CCDSoft.Image")
         img.AttachToActiveImager()
         pix = np.transpose(np.array(img.DataArray))
 
-        (mode, binning, top, left, width, height) = self._getReadoutModeInfo(request["binning"], request["window"])
+        (mode, binning, top, left, width, height) = self._get_readout_mode_info(
+            request["binning"], request["window"]
+        )
 
-        request.headers.append(('GAIN', str(mode.gain), 'Electronic gain in photoelectrons per ADU'))
+        request.headers.append(
+            ("GAIN", str(mode.gain), "Electronic gain in photoelectrons per ADU")
+        )
 
-        proxy = self._saveImage(request, pix, {
-            "frame_start_time": datetimeFromJD(img.JulianDay),
-            "frame_temperature": self.getTemperature(),
-            "binning_factor": self._binning_factors[binning]})
+        image = self._save_image(
+            request,
+            pix,
+            {
+                "frame_start_time": Time(img.JulianDay, format="jd").to_datetime(),
+                "frame_temperature": self.get_temperature(),
+                "binning_factor": self._binning_factors[binning],
+            },
+        )
 
         # [ABORT POINT]
-        if self.abort.isSet():
-            self.readoutComplete(None, CameraStatus.ABORTED)
+        if self.abort.is_set():
+            self.readout_complete(None, CameraStatus.ABORTED)
             return None
 
-        self.readoutComplete(proxy, CameraStatus.OK)
-        return proxy
+        self.readout_complete(image.url(), CameraStatus.OK)
+        return image
 
     @lock
-    def startFan(self, rate=None):
+    def start_fan(self, rate=None):
         return False
 
     @lock
-    def stopFan(self):
+    def stop_fan(self):
         return False
 
-    def isFanning(self):
+    def is_fanning(self):
         return False
 
-    def getCCDs(self):
-        return self._ccds
-
-    def getCurrentCCD(self):
-        return self._MY_CCD
-
-    def getBinnings(self):
+    def get_binnings(self):
         return self._binnings
 
-    def getADCs(self):
-        return self._adcs
+    def get_adcs(self):
+        return {"12 bits": 0}
 
-    def getPhysicalSize(self):
+    def get_physical_size(self):
         return self["ccd_width"], self["ccd_height"]
 
-    def getPixelSize(self):
-        # TODO: return self._pixelWidth, self._pixelHeight
-        return 9, 9
+    def get_pixel_size(self):
+        return self["ccd_pixsize_x"], self["ccd_pixsize_y"]
 
-    def getOverscanSize(self, ccd=None):
+    def get_overscan_size(self, ccd=None):
         return 0, 0  # FIXME
 
-    def getReadoutModes(self):
-        return self._readoutModes
+    def get_readout_modes(self):
+        return self._readout_modes
 
     def supports(self, feature=None):
-        return self._supports[feature]
+        return self._supports.get(feature, False)
 
     @lock
-    def startCooling(self, setpoint):
+    def start_cooling(self, setpoint):
         if not self.supports(CameraFeature.TEMPERATURE_CONTROL):
             return False
         self._ccdsoft.ShutDownTemperatureRegulationOnDisconnect = 0
@@ -236,54 +223,34 @@ class CCDSoftCamera(CameraBase, FilterWheelBase):
         return True
 
     @lock
-    def stopCooling(self):
+    def stop_cooling(self):
         if not self.supports(CameraFeature.TEMPERATURE_CONTROL):
             return False
         self._ccdsoft.RegulateTemperature = 0
 
-    def isCooling(self):
+    def is_cooling(self):
         if not self.supports(CameraFeature.TEMPERATURE_CONTROL):
             return False
         return bool(self._ccdsoft.RegulateTemperature)
 
     @lock
-    def getTemperature(self):
+    def get_temperature(self):
         if not self.supports(CameraFeature.TEMPERATURE_CONTROL):
             return False
         return self._ccdsoft.Temperature
 
-    def getSetPoint(self):
+    def get_set_point(self):
         return self._ccdsoft.TemperatureSetPoint
 
-    def setFilter(self, filter):
-        filterName = str(filter).upper()
+    def set_filter(self, filter):
+        filter_name = str(filter).upper()
 
-        if filterName not in self.getFilters():
-            raise InvalidFilterPositionException("Invalid filter %s." % filter)
+        if filter_name not in self.get_filters():
+            raise InvalidFilterPositionException(f"Invalid filter {filter}.")
 
-        self.filterChange(filter, self.getFilter())
+        self.filter_change(filter, self.get_filter())
 
-        self._ccdsoft.FilterIndexZeroBased = self._getFilterPosition(filter)
+        self._ccdsoft.FilterIndexZeroBased = self._get_filter_position(filter)
 
-    def getFilter(self):
-        return self._getFilterName(self._ccdsoft.FilterIndexZeroBased)
-
-
-class InvalidExposureTime(ChimeraException):
-    pass
-
-
-if __name__ == '__main__':
-    ccdsoft = Dispatch("CCDSoft.Camera")
-    ccdsoft.Connect()
-    ccdsoft.Asynchronous = 0
-    ccdsoft.ImageReduction = 0  # Disable any possible data reduction
-    ccdsoft.ExposureTime = 1.0
-    ccdsoft.Frame = 1
-    ccdsoft.TakeImage()
-    while not bool(ccdsoft.IsExposureComplete):
-        time.sleep(.1)
-    print 'Done taking image.'
-    img = Dispatch("CCDSoft.Image")
-    img.AttachToActive()
-    pix = np.transpose(np.array(img.DataArray))
+    def get_filter(self):
+        return self._get_filter_name(self._ccdsoft.FilterIndexZeroBased)

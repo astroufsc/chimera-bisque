@@ -1,0 +1,112 @@
+# SPDX-FileCopyrightText: 2025-present William Schoenell <wschoenell@gmail.com>
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Tests for the pure-socket TheSkyX driver against a fake TCP server.
+
+These exercise the real request/response parsing without any hardware or COM,
+so they run on every platform.
+"""
+
+import logging
+import socketserver
+import threading
+
+import pytest
+
+from chimera_bisque.instruments.theskyxdriver import (
+    TheSkyXConnectionError,
+    TheSkyXDriver,
+)
+
+
+def _canned_response(command: str) -> str:
+    """Emulate the TheSkyX scripting interface for the commands we send."""
+    if "GetRaDec" in command:
+        return "12.5 45.0"
+    if "IsSlewComplete" in command and "SlewToRaDec" not in command:
+        return "1"  # slew complete
+    if "IsConnected" in command and "Disconnect" in command:
+        return "0"
+    if "IsConnected" in command:
+        return "1"  # connected
+    return "undefined"
+
+
+class _FakeSkyXHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        data = self.request.recv(4096).decode("utf-8", errors="ignore")
+        self.request.sendall(_canned_response(data).encode("utf-8"))
+        # Keep the connection open until the client shuts down its side, so the
+        # driver's shutdown()/close() do not race with the server closing first.
+        try:
+            self.request.recv(1)
+        except OSError:
+            pass
+
+
+@pytest.fixture
+def skyx_server():
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _FakeSkyXHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server.server_address
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.fixture
+def driver(skyx_server):
+    host, port = skyx_server
+    return TheSkyXDriver(logging.getLogger("test"), host=host, port=port)
+
+
+def test_connect_and_disconnect(driver):
+    driver.connect()
+    assert driver._is_connected is True
+    driver.disconnect()
+    assert driver._is_connected is False
+
+
+def test_get_ra_dec(driver):
+    driver.connect()
+    ra, dec = driver.get_ra_dec()
+    assert ra == 12.5
+    assert dec == 45.0
+
+
+def test_slew_and_completion(driver):
+    driver.connect()
+    driver.slew_to_ra_dec(10.0, 20.0)
+    # fake server reports IsSlewComplete == 1 -> not slewing
+    assert driver.is_slewing() is False
+
+
+def test_sync_and_tracking(driver):
+    driver.connect()
+    driver.sync_ra_dec(1.0, 2.0)  # should not raise
+    driver.start_tracking()
+    assert driver.is_tracking() is True
+    driver.stop_tracking()
+    assert driver.is_tracking() is False
+
+
+def test_park_unpark(driver):
+    driver.connect()
+    driver.set_park_position()
+    driver.park()
+    assert driver.is_parked() is True
+    driver.unpark()
+    assert driver.is_parked() is False
+
+
+def test_commands_require_connection(driver):
+    with pytest.raises(TheSkyXConnectionError):
+        driver.get_ra_dec()
+
+
+def test_connection_error_on_dead_port():
+    # nothing is listening on this port
+    driver = TheSkyXDriver(logging.getLogger("test"), host="127.0.0.1", port=1)
+    with pytest.raises(TheSkyXConnectionError):
+        driver.connect()
