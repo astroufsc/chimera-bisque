@@ -1,0 +1,332 @@
+import logging
+import time
+from socket import socket, AF_INET, SOCK_STREAM, SHUT_RDWR, error as socket_error
+from typing import Optional, Tuple
+
+
+class TheSkyXConnectionError(Exception):
+    pass
+
+
+class TheSkyXCommandError(Exception):
+    pass
+
+
+class TheSkyXDriver:
+    def __init__(
+        self,
+        logger: logging.Logger,
+        host: str = "localhost",
+        port: int = 3040,
+    ):
+        self.log = logger
+        self.host = host
+        self.port = port
+        self._is_connected = False
+        self._is_tracking = False
+        self._is_parked = False
+        self._is_slewing = False
+
+    def _send_command(self, javascript: str) -> str:
+        try:
+            sock = socket(AF_INET, SOCK_STREAM)
+            sock.connect((self.host, self.port))
+
+            #  These markers are used to not break between network packets
+            #  https://www.bisque.com/wp-content/scriptthesky/script_over_socket.html
+            command = (
+                "/* Java Script */\n"
+                "/* Socket Start Packet */\n"
+                f"{javascript}\n"
+                "/* Socket End Packet */\n"
+            )
+
+            sock.send(command.encode("utf-8"))
+            response = sock.recv(2048).decode("utf-8", errors="ignore")
+            sock.shutdown(SHUT_RDWR)
+            sock.close()
+
+            self.log.debug(f"TheSkyX response: {response}")
+            result = response.split("|")[0].strip()
+            self.log.debug(f"Parsed result: {result}")
+
+            if 'error' in result.lower():
+                raise TheSkyXCommandError(f"TheSkyX error response: {result}")
+
+            return result
+
+        except socket_error as e:
+            raise TheSkyXConnectionError(
+                f"Failed to connect to TheSkyX at {self.host}:{self.port}: {e}"
+            )
+
+    def connect(self) -> None:
+        """Connect to TheSkyX telescope.
+
+        Raises:
+            TheSkyXConnectionError: If connection fails
+            TheSkyXCommandError: If telescope is not available
+        """
+        self.log.info(f"Connecting to TheSkyX at {self.host}:{self.port}")
+        try:
+            command = """
+                var Out;
+                sky6RASCOMTele.Connect();
+                Out = sky6RASCOMTele.IsConnected;
+            """
+            result = self._send_command(command)
+
+            if int(result) != 1:
+                raise TheSkyXCommandError(
+                    f"Telescope connection failed. IsConnected={result}"
+                )
+
+            self._is_connected = True
+            self.log.info("Connected to TheSkyX telescope")
+        except TheSkyXConnectionError:
+            raise
+        except (ValueError, TheSkyXCommandError) as e:
+            self._is_connected = False
+            raise TheSkyXCommandError(f"Failed to connect to telescope: {e}")
+
+    def disconnect(self) -> None:
+        """Disconnect from TheSkyX telescope."""
+        if not self._is_connected:
+            return
+
+        try:
+            command = """
+                var Out;
+                sky6RASCOMTele.Disconnect();
+                Out = sky6RASCOMTele.IsConnected;
+            """
+            self._send_command(command)
+            self._is_connected = False
+            self.log.info("Disconnected from TheSkyX telescope")
+        except Exception as e:
+            self.log.error(f"Error disconnecting from TheSkyX: {e}")
+
+    def get_ra_dec(self) -> Tuple[float, float]:
+        """Get current telescope RA and Dec"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            command = """
+                var Out;
+                sky6RASCOMTele.GetRaDec();
+                Out = String(sky6RASCOMTele.dRa) + " " + String(sky6RASCOMTele.dDec);
+            """
+            result = self._send_command(command)
+            parts = result.split()
+
+            if len(parts) < 2:
+                raise TheSkyXCommandError(f"Invalid RA/Dec response: {result}")
+
+            ra_hours = float(parts[0])
+            dec_degrees = float(parts[1])
+
+            self.log.debug(f"Current position: RA={ra_hours}h, Dec={dec_degrees}°")
+            return ra_hours, dec_degrees
+
+        except (ValueError, TheSkyXConnectionError) as e:
+            raise TheSkyXCommandError(f"Failed to get RA/Dec: {e}")
+
+    def slew_to_ra_dec(self, ra_hours: float, dec_degrees: float) -> None:
+        """Slew telescope to target RA/Dec.
+
+        This command initiates an asynchronous slew. Use is_slewing() to poll.
+
+        Raises:
+            TheSkyXConnectionError: If not connected
+            TheSkyXCommandError: If slew fails
+        """
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            command = f"""
+                var Out;
+                sky6RASCOMTele.RightAscension = {ra_hours};
+                sky6RASCOMTele.Declination = {dec_degrees};
+                sky6RASCOMTele.SlewToRaDec({ra_hours}, {dec_degrees}, "Chimera");
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self._is_slewing = True
+            self.log.info(f"Slewing to RA={ra_hours}h, Dec={dec_degrees}°")
+
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            self._is_slewing = False
+            raise TheSkyXCommandError(f"Failed to slew to RA/Dec: {e}")
+
+    def is_slewing(self) -> bool:
+        """Check if telescope is currently slewing."""
+        if not self._is_connected:
+            return False
+
+        try:
+            command = """
+                var Out;
+                Out = sky6RASCOMTele.IsSlewComplete;
+            """
+            result = self._send_command(command)
+
+            # IsSlewComplete returns 1 when slew is done, 0 when still slewing
+            is_complete = int(result) == 1
+            self._is_slewing = not is_complete
+            return self._is_slewing
+
+        except Exception as e:
+            self.log.debug(f"Error checking slew status: {e}")
+            return False
+
+    def abort_slew(self) -> None:
+        """Abort any in-progress slew"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            command = """
+                var Out;
+                sky6RASCOMTele.Abort();
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self._is_slewing = False
+            self.log.info("Slew aborted")
+
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            raise TheSkyXCommandError(f"Failed to abort slew: {e}")
+
+    def sync_ra_dec(self, ra_hours: float, dec_degrees: float) -> None:
+        """Sync telescope to current position (calibration)"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            command = f"""
+                var Out;
+                sky6RASCOMTele.Sync({ra_hours}, {dec_degrees}, "Chimera");
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self.log.info(f"Synced to RA={ra_hours}h, Dec={dec_degrees}°")
+
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            raise TheSkyXCommandError(f"Failed to sync RA/Dec: {e}")
+
+    def start_tracking(self) -> None:
+        """Start telescope tracking"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            # https://www.bisque.com/wp-content/scriptthesky/classsky6_r_a_s_c_o_m_tele.html#a6df8aa451ca5a9986436e017e98a8b17
+            command = """
+                var Out;
+                sky6RASCOMTele.SetTracking(1, 1, 0, 0);
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self._is_tracking = True
+            self.log.info("Tracking started")
+
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            raise TheSkyXCommandError(f"Failed to start tracking: {e}")
+
+    def stop_tracking(self) -> None:
+        """Stop telescope tracking"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            # https://www.bisque.com/wp-content/scriptthesky/classsky6_r_a_s_c_o_m_tele.html#a6df8aa451ca5a9986436e017e98a8b17
+            command = """
+                var Out;
+                sky6RASCOMTele.SetTracking(0, 1, 0, 0);
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self._is_tracking = False
+            self.log.info("Tracking stopped")
+
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            raise TheSkyXCommandError(f"Failed to stop tracking: {e}")
+
+    def is_tracking(self) -> bool:
+        """Check if telescope is tracking"""
+        return self._is_tracking
+
+    def set_park_position(self) -> None:
+        """Set the parking position for the telescope to the current position"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            command = f"""
+                var Out;
+                sky6RASCOMTele.SetParkPosition();
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self.log.info(f"Parking position set")
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            raise TheSkyXCommandError(f"Failed to set parking position: {e}")
+
+    def park(self) -> None:
+        """Park the telescope. Must have set a parking position. Does not disconnect TheSkyX from the mount"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            # https://www.bisque.com/wp-content/scriptthesky/classsky6_r_a_s_c_o_m_tele.html#ad08e329bb8844fa4d0a0d59a9ce10d07
+            command = """
+                var Out;
+                sky6RASCOMTele.ParkAndDoNotDisconnect();
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self._is_parked = True
+            self.log.info("Telescope parked")
+
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            raise TheSkyXCommandError(f"Failed to park telescope: {e}")
+
+    def unpark(self) -> None:
+        """Unpark the telescope. Happend automatically on connect"""
+        if not self._is_connected:
+            raise TheSkyXConnectionError("Not connected to TheSkyX")
+
+        try:
+            command = """
+                var Out;
+                sky6RASCOMTele.Unpark();
+                Out = "undefined";
+            """
+            self._send_command(command)
+            self._is_parked = False
+            self.log.info("Telescope unparked")
+
+        except TheSkyXConnectionError:
+            raise
+        except Exception as e:
+            raise TheSkyXCommandError(f"Failed to unpark telescope: {e}")
+
+    def is_parked(self) -> bool:
+        """Check if telescope is parked"""
+        return self._is_parked
