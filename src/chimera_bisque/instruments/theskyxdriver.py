@@ -3,6 +3,7 @@
 """Pure-socket driver for the TheSkyX TCP/IP JavaScript scripting interface."""
 
 import logging
+import time
 from socket import AF_INET, SHUT_RDWR, SOCK_STREAM, socket
 
 
@@ -26,6 +27,8 @@ class TheSkyXDriver:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self._busy_retries = 5
+        self._busy_retry_delay = 0.3
         self._is_connected = False
         self._is_tracking = False
         self._is_parked = False
@@ -41,6 +44,28 @@ class TheSkyXDriver:
             "/* Socket End Packet */\n"
         )
 
+        # TheSkyX runs one socket script at a time. A command sent while the
+        # previous one is still finalizing is rejected with "Another script is
+        # running"; retry a few times before giving up.
+        for attempt in range(self._busy_retries + 1):
+            result = self._send_once(command)
+            if self._is_busy(result) and attempt < self._busy_retries:
+                self.log.debug("TheSkyX busy, retrying...")
+                time.sleep(self._busy_retry_delay)
+                continue
+            break
+
+        if "error" in result.lower():
+            raise TheSkyXCommandError(f"TheSkyX error response: {result}")
+
+        return result
+
+    @staticmethod
+    def _is_busy(result: str) -> bool:
+        low = result.lower()
+        return result == "NG" or "another script is running" in low
+
+    def _send_once(self, command: str) -> str:
         try:
             with socket(AF_INET, SOCK_STREAM) as sock:
                 # A timeout is essential: without it an unresponsive or
@@ -63,10 +88,6 @@ class TheSkyXDriver:
         self.log.debug(f"TheSkyX response: {response}")
         result = response.split("|")[0].strip()
         self.log.debug(f"Parsed result: {result}")
-
-        if "error" in result.lower():
-            raise TheSkyXCommandError(f"TheSkyX error response: {result}")
-
         return result
 
     def connect(self) -> None:
