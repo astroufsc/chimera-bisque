@@ -20,47 +20,54 @@ class TheSkyXDriver:
         logger: logging.Logger,
         host: str = "localhost",
         port: int = 3040,
+        timeout: float = 15.0,
     ):
         self.log = logger
         self.host = host
         self.port = port
+        self.timeout = timeout
         self._is_connected = False
         self._is_tracking = False
         self._is_parked = False
         self._is_slewing = False
 
     def _send_command(self, javascript: str) -> str:
+        #  These markers are used to not break between network packets
+        #  https://www.bisque.com/wp-content/scriptthesky/script_over_socket.html
+        command = (
+            "/* Java Script */\n"
+            "/* Socket Start Packet */\n"
+            f"{javascript}\n"
+            "/* Socket End Packet */\n"
+        )
+
         try:
-            sock = socket(AF_INET, SOCK_STREAM)
-            sock.connect((self.host, self.port))
-
-            #  These markers are used to not break between network packets
-            #  https://www.bisque.com/wp-content/scriptthesky/script_over_socket.html
-            command = (
-                "/* Java Script */\n"
-                "/* Socket Start Packet */\n"
-                f"{javascript}\n"
-                "/* Socket End Packet */\n"
+            with socket(AF_INET, SOCK_STREAM) as sock:
+                # A timeout is essential: without it an unresponsive or
+                # restarted TheSkyX would make recv() block forever.
+                sock.settimeout(self.timeout)
+                sock.connect((self.host, self.port))
+                sock.sendall(command.encode("utf-8"))
+                response = sock.recv(2048).decode("utf-8", errors="ignore")
+                sock.shutdown(SHUT_RDWR)
+        except TimeoutError as e:
+            raise TheSkyXConnectionError(
+                f"Timed out talking to TheSkyX at {self.host}:{self.port} "
+                f"after {self.timeout}s: {e}"
             )
-
-            sock.send(command.encode("utf-8"))
-            response = sock.recv(2048).decode("utf-8", errors="ignore")
-            sock.shutdown(SHUT_RDWR)
-            sock.close()
-
-            self.log.debug(f"TheSkyX response: {response}")
-            result = response.split("|")[0].strip()
-            self.log.debug(f"Parsed result: {result}")
-
-            if "error" in result.lower():
-                raise TheSkyXCommandError(f"TheSkyX error response: {result}")
-
-            return result
-
         except OSError as e:
             raise TheSkyXConnectionError(
                 f"Failed to connect to TheSkyX at {self.host}:{self.port}: {e}"
             )
+
+        self.log.debug(f"TheSkyX response: {response}")
+        result = response.split("|")[0].strip()
+        self.log.debug(f"Parsed result: {result}")
+
+        if "error" in result.lower():
+            raise TheSkyXCommandError(f"TheSkyX error response: {result}")
+
+        return result
 
     def connect(self) -> None:
         """Connect to TheSkyX telescope.
@@ -71,9 +78,13 @@ class TheSkyXDriver:
         """
         self.log.info(f"Connecting to TheSkyX at {self.host}:{self.port}")
         try:
+            # Asynchronous = 1 is required so SlewToRaDec returns immediately and
+            # we can poll IsSlewComplete; a synchronous slew would block the
+            # socket command for the whole slew (and hang on a bad target).
             command = """
                 var Out;
                 sky6RASCOMTele.Connect();
+                sky6RASCOMTele.Asynchronous = 1;
                 Out = sky6RASCOMTele.IsConnected;
             """
             result = self._send_command(command)
