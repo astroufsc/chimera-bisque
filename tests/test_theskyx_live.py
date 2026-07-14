@@ -7,15 +7,22 @@ TheSkyX with a Telescope Mount Simulator connected, e.g.::
 
     THESKYX_TEST_URL=localhost:13040 uv run pytest tests/test_theskyx_live.py -v
 
-These exercise the driver interface against real hardware/simulator:
-connect/disconnect, position queries, asynchronous slews with polling, abort,
-sync and parking. All slews are small offsets from the current pointing so the
-mount stays above the horizon. Tests are ordered safest-first so a command an
-individual simulator does not implement cannot cascade into the others.
+The core tests below (connect/disconnect, position queries, asynchronous slews
+with polling, arrival, sync, and the not-connected error path) were validated
+against the TheSkyX "Telescope Mount Simulator".
 
-Note: the TheSkyX "Telescope Mount Simulator" does not respond to
-``SetTracking`` (the call blocks server-side), so tracking control is not
-covered here; it is exercised on real mounts.
+Two operations are *not* covered by default because they misbehave on that
+simulator (they work on real mounts):
+
+* ``SetTracking`` never returns (the call blocks TheSkyX server-side).
+* After ``Abort()`` (and ``Park()``), the next ``IsSlewComplete`` read hangs,
+  which then wedges TheSkyX's single-script command queue.
+
+Because those wedge the simulator, the abort/park tests are gated behind
+``THESKYX_TEST_DESTRUCTIVE=1`` so the default run stays clean. Run them only
+against real hardware::
+
+    THESKYX_TEST_URL=host:3040 THESKYX_TEST_DESTRUCTIVE=1 uv run pytest ...
 """
 
 import logging
@@ -30,6 +37,7 @@ from chimera_bisque.instruments.theskyxdriver import (
 )
 
 _URL = os.environ.get("THESKYX_TEST_URL")
+_DESTRUCTIVE = os.environ.get("THESKYX_TEST_DESTRUCTIVE")
 
 pytestmark = pytest.mark.skipif(
     not _URL, reason="set THESKYX_TEST_URL=host:port to run live TheSkyX tests"
@@ -99,21 +107,44 @@ def test_async_slew_and_arrival(driver):
     _wait_slew_done(driver)
 
 
+def test_back_to_back_slews(driver):
+    ra0, dec0 = driver.get_ra_dec()
+    driver.slew_to_ra_dec(ra0, dec0 - 1.0)
+    _wait_slew_done(driver)
+    # a fresh slew immediately after completion must be accepted
+    driver.slew_to_ra_dec(ra0, dec0)
+    _wait_slew_done(driver)
+    ra1, dec1 = driver.get_ra_dec()
+    assert abs(ra1 - ra0) < 0.05
+    assert abs(dec1 - dec0) < 0.5
+
+
+def test_get_position_requires_connection():
+    drv = _make_driver()
+    with pytest.raises(TheSkyXConnectionError):
+        drv.get_ra_dec()
+
+
+@pytest.mark.skipif(
+    not _DESTRUCTIVE,
+    reason="set THESKYX_TEST_DESTRUCTIVE=1 (real hardware only; wedges the sim)",
+)
 def test_abort_slew(driver):
     ra0, dec0 = driver.get_ra_dec()
     driver.slew_to_ra_dec(ra0 + 0.3, dec0 + 3.0)
     time.sleep(0.5)
+    assert driver.is_slewing() is True
     driver.abort_slew()
-    # after abort the mount must settle (not slewing) shortly
     start = time.time()
     while driver.is_slewing():
         assert time.time() - start < 15, "mount still slewing after abort"
         time.sleep(POLL)
-    # return to start for a clean state
-    driver.slew_to_ra_dec(ra0, dec0)
-    _wait_slew_done(driver)
 
 
+@pytest.mark.skipif(
+    not _DESTRUCTIVE,
+    reason="set THESKYX_TEST_DESTRUCTIVE=1 (real hardware only; wedges the sim)",
+)
 def test_park_and_unpark(driver):
     driver.set_park_position()
     driver.park()
@@ -124,9 +155,3 @@ def test_park_and_unpark(driver):
     assert driver.is_parked() is True
     driver.unpark()
     assert driver.is_parked() is False
-
-
-def test_get_position_requires_connection():
-    drv = _make_driver()
-    with pytest.raises(TheSkyXConnectionError):
-        drv.get_ra_dec()

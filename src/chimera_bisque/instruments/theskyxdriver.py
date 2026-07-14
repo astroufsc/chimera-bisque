@@ -27,7 +27,10 @@ class TheSkyXDriver:
         self.host = host
         self.port = port
         self.timeout = timeout
-        self._busy_retries = 5
+        # How long to keep retrying a command that TheSkyX rejects with
+        # "Another script is running" (it serialises socket scripts and can
+        # stay busy for a second or two after a slew).
+        self._busy_timeout = 30.0
         self._busy_retry_delay = 0.3
         self._is_connected = False
         self._is_tracking = False
@@ -46,10 +49,11 @@ class TheSkyXDriver:
 
         # TheSkyX runs one socket script at a time. A command sent while the
         # previous one is still finalizing is rejected with "Another script is
-        # running"; retry a few times before giving up.
-        for attempt in range(self._busy_retries + 1):
+        # running"; keep retrying (bounded) until the engine frees up.
+        deadline = time.monotonic() + self._busy_timeout
+        while True:
             result = self._send_once(command)
-            if self._is_busy(result) and attempt < self._busy_retries:
+            if self._is_busy(result) and time.monotonic() < deadline:
                 self.log.debug("TheSkyX busy, retrying...")
                 time.sleep(self._busy_retry_delay)
                 continue
@@ -74,7 +78,12 @@ class TheSkyXDriver:
                 sock.connect((self.host, self.port))
                 sock.sendall(command.encode("utf-8"))
                 response = sock.recv(2048).decode("utf-8", errors="ignore")
-                sock.shutdown(SHUT_RDWR)
+                # Best-effort: TheSkyX often closes its side as soon as it has
+                # replied, so shutdown() may raise ENOTCONN -- harmless here.
+                try:
+                    sock.shutdown(SHUT_RDWR)
+                except OSError:
+                    pass
         except TimeoutError as e:
             raise TheSkyXConnectionError(
                 f"Timed out talking to TheSkyX at {self.host}:{self.port} "
