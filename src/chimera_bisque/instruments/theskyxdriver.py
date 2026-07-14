@@ -3,6 +3,7 @@
 """Pure-socket driver for the TheSkyX TCP/IP JavaScript scripting interface."""
 
 import logging
+import time
 from socket import AF_INET, SHUT_RDWR, SOCK_STREAM, socket
 
 
@@ -20,47 +21,91 @@ class TheSkyXDriver:
         logger: logging.Logger,
         host: str = "localhost",
         port: int = 3040,
+        timeout: float = 15.0,
     ):
         self.log = logger
         self.host = host
         self.port = port
+        self.timeout = timeout
+        # How long to keep retrying a command that TheSkyX rejects with
+        # "Another script is running" (it serialises socket scripts and can
+        # stay busy for a second or two after a slew).
+        self._busy_timeout = 30.0
+        self._busy_retry_delay = 0.3
         self._is_connected = False
         self._is_tracking = False
         self._is_parked = False
         self._is_slewing = False
 
     def _send_command(self, javascript: str) -> str:
+        #  The try/catch is essential: an *uncaught* script exception (e.g.
+        #  "TypeError: Process aborted. Error = 212." from IsSlewComplete right
+        #  after Abort()) drops TheSkyX into its interactive Qt Script debugger,
+        #  which blocks the script engine until someone dismisses it in the GUI.
+        #  Catching it turns the exception into a normal response instead.
+        #  The packet markers are used to not break between network packets:
+        #  https://www.bisque.com/wp-content/scriptthesky/script_over_socket.html
+        command = (
+            "/* Java Script */\n"
+            "/* Socket Start Packet */\n"
+            "var Out;\n"
+            "try {\n"
+            f"{javascript}\n"
+            '} catch (e) { Out = "ScriptError: " + e; }\n'
+            "/* Socket End Packet */\n"
+        )
+
+        # TheSkyX runs one socket script at a time. A command sent while the
+        # previous one is still finalizing is rejected with "Another script is
+        # running"; keep retrying (bounded) until the engine frees up.
+        deadline = time.monotonic() + self._busy_timeout
+        while True:
+            result = self._send_once(command)
+            if self._is_busy(result) and time.monotonic() < deadline:
+                self.log.debug("TheSkyX busy, retrying...")
+                time.sleep(self._busy_retry_delay)
+                continue
+            break
+
+        if result.startswith("ScriptError:") or "error" in result.lower():
+            raise TheSkyXCommandError(f"TheSkyX error response: {result}")
+
+        return result
+
+    @staticmethod
+    def _is_busy(result: str) -> bool:
+        low = result.lower()
+        return result == "NG" or "another script is running" in low
+
+    def _send_once(self, command: str) -> str:
         try:
-            sock = socket(AF_INET, SOCK_STREAM)
-            sock.connect((self.host, self.port))
-
-            #  These markers are used to not break between network packets
-            #  https://www.bisque.com/wp-content/scriptthesky/script_over_socket.html
-            command = (
-                "/* Java Script */\n"
-                "/* Socket Start Packet */\n"
-                f"{javascript}\n"
-                "/* Socket End Packet */\n"
+            with socket(AF_INET, SOCK_STREAM) as sock:
+                # A timeout is essential: without it an unresponsive or
+                # restarted TheSkyX would make recv() block forever.
+                sock.settimeout(self.timeout)
+                sock.connect((self.host, self.port))
+                sock.sendall(command.encode("utf-8"))
+                response = sock.recv(2048).decode("utf-8", errors="ignore")
+                # Best-effort: TheSkyX often closes its side as soon as it has
+                # replied, so shutdown() may raise ENOTCONN -- harmless here.
+                try:
+                    sock.shutdown(SHUT_RDWR)
+                except OSError:
+                    pass
+        except TimeoutError as e:
+            raise TheSkyXConnectionError(
+                f"Timed out talking to TheSkyX at {self.host}:{self.port} "
+                f"after {self.timeout}s: {e}"
             )
-
-            sock.send(command.encode("utf-8"))
-            response = sock.recv(2048).decode("utf-8", errors="ignore")
-            sock.shutdown(SHUT_RDWR)
-            sock.close()
-
-            self.log.debug(f"TheSkyX response: {response}")
-            result = response.split("|")[0].strip()
-            self.log.debug(f"Parsed result: {result}")
-
-            if "error" in result.lower():
-                raise TheSkyXCommandError(f"TheSkyX error response: {result}")
-
-            return result
-
         except OSError as e:
             raise TheSkyXConnectionError(
                 f"Failed to connect to TheSkyX at {self.host}:{self.port}: {e}"
             )
+
+        self.log.debug(f"TheSkyX response: {response}")
+        result = response.split("|")[0].strip()
+        self.log.debug(f"Parsed result: {result}")
+        return result
 
     def connect(self) -> None:
         """Connect to TheSkyX telescope.
@@ -71,9 +116,13 @@ class TheSkyXDriver:
         """
         self.log.info(f"Connecting to TheSkyX at {self.host}:{self.port}")
         try:
+            # Asynchronous = 1 is required so SlewToRaDec returns immediately and
+            # we can poll IsSlewComplete; a synchronous slew would block the
+            # socket command for the whole slew (and hang on a bad target).
             command = """
                 var Out;
                 sky6RASCOMTele.Connect();
+                sky6RASCOMTele.Asynchronous = 1;
                 Out = sky6RASCOMTele.IsConnected;
             """
             result = self._send_command(command)
@@ -181,6 +230,14 @@ class TheSkyXDriver:
             self._is_slewing = not is_complete
             return self._is_slewing
 
+        except TheSkyXCommandError as e:
+            # After Abort(), IsSlewComplete raises "Process aborted. Error =
+            # 212." until a new slew is commanded: the mount is stopped.
+            if "process aborted" in str(e).lower():
+                self._is_slewing = False
+                return False
+            self.log.debug(f"Error checking slew status: {e}")
+            return False
         except Exception as e:
             self.log.debug(f"Error checking slew status: {e}")
             return False

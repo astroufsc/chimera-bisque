@@ -31,8 +31,6 @@ class TheSkyXTelescope(TelescopeBase):
         super().__init__()
         self._driver: TheSkyXDriver | None = None
         self._abort = threading.Event()
-        self._tracking = False
-        self._parked = False
 
     @lock
     def __start__(self):
@@ -172,6 +170,18 @@ class TheSkyXTelescope(TelescopeBase):
         alt, az = site.ra_dec_to_alt_az(ra, dec)
         return alt, az
 
+    def get_ra(self) -> float:
+        return self.get_position_ra_dec()[0]
+
+    def get_dec(self) -> float:
+        return self.get_position_ra_dec()[1]
+
+    def get_alt(self) -> float:
+        return self.get_position_alt_az()[0]
+
+    def get_az(self) -> float:
+        return self.get_position_alt_az()[1]
+
     @lock
     def sync_ra_dec(self, ra: float, dec: float, epoch: float = 2000) -> None:
         """Sync telescope to current position (calibration).
@@ -198,26 +208,28 @@ class TheSkyXTelescope(TelescopeBase):
 
     @lock
     def move_east(self, offset: float, rate=None) -> None:
+        # offset is in arcseconds; float() is required because "float + Coord"
+        # does not add hours correctly.
         ra, dec = self.get_position_ra_dec()
-        new_ra = ra + Coord.from_as(offset).to_h()
+        new_ra = ra + float(Coord.from_as(offset).to_h())
         self.slew_to_ra_dec(new_ra, dec)
 
     @lock
     def move_west(self, offset: float, rate=None) -> None:
         ra, dec = self.get_position_ra_dec()
-        new_ra = ra - Coord.from_as(offset).to_h()
+        new_ra = ra - float(Coord.from_as(offset).to_h())
         self.slew_to_ra_dec(new_ra, dec)
 
     @lock
     def move_north(self, offset: float, rate=None) -> None:
         ra, dec = self.get_position_ra_dec()
-        new_dec = dec + Coord.from_as(offset).to_d()
+        new_dec = dec + float(Coord.from_as(offset).to_d())
         self.slew_to_ra_dec(ra, new_dec)
 
     @lock
     def move_south(self, offset: float, rate=None) -> None:
         ra, dec = self.get_position_ra_dec()
-        new_dec = dec - Coord.from_as(offset).to_d()
+        new_dec = dec - float(Coord.from_as(offset).to_d())
         self.slew_to_ra_dec(ra, new_dec)
 
     @lock
@@ -228,7 +240,6 @@ class TheSkyXTelescope(TelescopeBase):
 
         try:
             self._driver.start_tracking()
-            self._tracking = True
             self.tracking_started()
         except TheSkyXCommandError as e:
             raise RuntimeError(f"Failed to start tracking: {e}")
@@ -241,7 +252,6 @@ class TheSkyXTelescope(TelescopeBase):
 
         try:
             self._driver.stop_tracking()
-            self._tracking = False
             self.tracking_stopped(TelescopeStatus.OK)
         except TheSkyXCommandError as e:
             raise RuntimeError(f"Failed to stop tracking: {e}")
@@ -271,7 +281,6 @@ class TheSkyXTelescope(TelescopeBase):
 
         try:
             self._driver.park()
-            self._parked = True
             self.park_complete()
         except TheSkyXCommandError as e:
             raise RuntimeError(f"Failed to park telescope: {e}")
@@ -284,7 +293,6 @@ class TheSkyXTelescope(TelescopeBase):
 
         try:
             self._driver.unpark()
-            self._parked = False
         except TheSkyXCommandError as e:
             raise RuntimeError(f"Failed to unpark telescope: {e}")
 

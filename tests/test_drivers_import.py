@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Cross-platform import, instantiation and graceful-degradation tests.
 
-The COM drivers (TheSky 5/6, CCDSoft) require Windows + pywin32 to actually
-talk to hardware, but the plugin must still import and instantiate everywhere
-so it can be installed and inspected on non-Windows machines.
+The TheSky 5/6 COM driver requires Windows + pywin32 to actually talk to
+hardware, but the plugin must still import and instantiate everywhere so it
+can be installed and inspected on non-Windows machines.
 """
 
 import sys
@@ -13,16 +13,14 @@ import pytest
 from chimera.core.exceptions import ChimeraException
 
 from chimera_bisque.instruments import (
-    ccdsoftcamera,
     theskytelescope,
     theskyxtelescope,
 )
 
 
-def test_com_modules_degrade_off_windows():
+def test_com_module_degrades_off_windows():
     if sys.platform != "win32":
         assert theskytelescope.Dispatch is None
-        assert ccdsoftcamera.Dispatch is None
 
 
 def test_instantiation_is_hardware_free():
@@ -33,10 +31,6 @@ def test_instantiation_is_hardware_free():
 
     skyx = theskyxtelescope.TheSkyXTelescope()
     assert skyx["skyx_port"] == 3040
-
-    cam = ccdsoftcamera.CCDSoftCamera()
-    assert cam["model"] == "CCDSoft camera"
-    assert set(cam.get_binnings()) == {"1x1", "2x2", "3x3", "9x9", "10x10"}
 
 
 def test_com_decorator_wraps_errors():
