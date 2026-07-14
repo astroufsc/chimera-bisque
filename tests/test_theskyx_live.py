@@ -7,22 +7,20 @@ TheSkyX with a Telescope Mount Simulator connected, e.g.::
 
     THESKYX_TEST_URL=localhost:13040 uv run pytest tests/test_theskyx_live.py -v
 
-The core tests below (connect/disconnect, position queries, asynchronous slews
-with polling, arrival, sync, and the not-connected error path) were validated
-against the TheSkyX "Telescope Mount Simulator".
+The default set (connect/disconnect, position queries, asynchronous slews with
+polling, arrival, sync, and the not-connected error path) is validated against
+the TheSkyX "Telescope Mount Simulator".
 
-Two operations are *not* covered by default because they misbehave on that
-simulator (they work on real mounts):
-
-* ``SetTracking`` never returns (the call blocks TheSkyX server-side).
-* After ``Abort()`` (and ``Park()``), the next ``IsSlewComplete`` read hangs,
-  which then wedges TheSkyX's single-script command queue.
-
-Because those wedge the simulator, the abort/park tests are gated behind
-``THESKYX_TEST_DESTRUCTIVE=1`` so the default run stays clean. Run them only
-against real hardware::
+Operations that move the mount to a disruptive state (abort, park) or depend on
+mount features (tracking) are gated behind ``THESKYX_TEST_DESTRUCTIVE=1`` so an
+automated run cannot disturb a real telescope by accident::
 
     THESKYX_TEST_URL=host:3040 THESKYX_TEST_DESTRUCTIVE=1 uv run pytest ...
+
+Note: the Mount Simulator reports ``SetTracking`` as "not supported by the
+selected device"; the driver surfaces that as a clean error (it works on real
+mounts). Every command is wrapped in a JavaScript try/catch so a script-side
+exception can never drop TheSkyX into its interactive debugger.
 """
 
 import logging
@@ -32,6 +30,7 @@ import time
 import pytest
 
 from chimera_bisque.instruments.theskyxdriver import (
+    TheSkyXCommandError,
     TheSkyXConnectionError,
     TheSkyXDriver,
 )
@@ -41,6 +40,11 @@ _DESTRUCTIVE = os.environ.get("THESKYX_TEST_DESTRUCTIVE")
 
 pytestmark = pytest.mark.skipif(
     not _URL, reason="set THESKYX_TEST_URL=host:port to run live TheSkyX tests"
+)
+
+destructive = pytest.mark.skipif(
+    not _DESTRUCTIVE,
+    reason="set THESKYX_TEST_DESTRUCTIVE=1 to run mount-moving tests",
 )
 
 SLEW_TIMEOUT = 60.0
@@ -125,10 +129,7 @@ def test_get_position_requires_connection():
         drv.get_ra_dec()
 
 
-@pytest.mark.skipif(
-    not _DESTRUCTIVE,
-    reason="set THESKYX_TEST_DESTRUCTIVE=1 (real hardware only; wedges the sim)",
-)
+@destructive
 def test_abort_slew(driver):
     ra0, dec0 = driver.get_ra_dec()
     driver.slew_to_ra_dec(ra0 + 0.3, dec0 + 3.0)
@@ -141,10 +142,7 @@ def test_abort_slew(driver):
         time.sleep(POLL)
 
 
-@pytest.mark.skipif(
-    not _DESTRUCTIVE,
-    reason="set THESKYX_TEST_DESTRUCTIVE=1 (real hardware only; wedges the sim)",
-)
+@destructive
 def test_park_and_unpark(driver):
     driver.set_park_position()
     driver.park()
@@ -155,3 +153,16 @@ def test_park_and_unpark(driver):
     assert driver.is_parked() is True
     driver.unpark()
     assert driver.is_parked() is False
+
+
+@destructive
+def test_tracking_command_is_graceful(driver):
+    # Real mounts toggle tracking; the Mount Simulator reports it unsupported.
+    # Either way the driver must return promptly, never hang.
+    start = time.time()
+    try:
+        driver.start_tracking()
+        driver.stop_tracking()
+    except TheSkyXCommandError:
+        pass  # e.g. "not supported by the selected device"
+    assert time.time() - start < 10, "tracking command should not hang"

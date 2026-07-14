@@ -38,12 +38,20 @@ class TheSkyXDriver:
         self._is_slewing = False
 
     def _send_command(self, javascript: str) -> str:
-        #  These markers are used to not break between network packets
+        #  The try/catch is essential: an *uncaught* script exception (e.g.
+        #  "TypeError: Process aborted. Error = 212." from IsSlewComplete right
+        #  after Abort()) drops TheSkyX into its interactive Qt Script debugger,
+        #  which blocks the script engine until someone dismisses it in the GUI.
+        #  Catching it turns the exception into a normal response instead.
+        #  The packet markers are used to not break between network packets:
         #  https://www.bisque.com/wp-content/scriptthesky/script_over_socket.html
         command = (
             "/* Java Script */\n"
             "/* Socket Start Packet */\n"
+            "var Out;\n"
+            "try {\n"
             f"{javascript}\n"
+            '} catch (e) { Out = "ScriptError: " + e; }\n'
             "/* Socket End Packet */\n"
         )
 
@@ -59,7 +67,7 @@ class TheSkyXDriver:
                 continue
             break
 
-        if "error" in result.lower():
+        if result.startswith("ScriptError:") or "error" in result.lower():
             raise TheSkyXCommandError(f"TheSkyX error response: {result}")
 
         return result
@@ -222,6 +230,14 @@ class TheSkyXDriver:
             self._is_slewing = not is_complete
             return self._is_slewing
 
+        except TheSkyXCommandError as e:
+            # After Abort(), IsSlewComplete raises "Process aborted. Error =
+            # 212." until a new slew is commanded: the mount is stopped.
+            if "process aborted" in str(e).lower():
+                self._is_slewing = False
+                return False
+            self.log.debug(f"Error checking slew status: {e}")
+            return False
         except Exception as e:
             self.log.debug(f"Error checking slew status: {e}")
             return False
