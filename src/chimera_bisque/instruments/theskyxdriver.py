@@ -15,7 +15,13 @@ class TheSkyXCommandError(Exception):
     pass
 
 
-class TheSkyXDriver:
+class TheSkyXScriptingClient:
+    """Shared transport for TheSkyX's JavaScript-over-TCP scripting interface.
+
+    Subclasses (telescope, autoguider) build JavaScript snippets and send
+    them through :meth:`_send_command`.
+    """
+
     def __init__(
         self,
         logger: logging.Logger,
@@ -33,9 +39,6 @@ class TheSkyXDriver:
         self._busy_timeout = 30.0
         self._busy_retry_delay = 0.3
         self._is_connected = False
-        self._is_tracking = False
-        self._is_parked = False
-        self._is_slewing = False
 
     def _send_command(self, javascript: str) -> str:
         #  The try/catch is essential: an *uncaught* script exception (e.g.
@@ -108,6 +111,20 @@ class TheSkyXDriver:
         # the raw framed response and a second parsed line on top of it.
         self.log.debug(f"TheSkyX -> {result!r}")
         return result
+
+
+class TheSkyXDriver(TheSkyXScriptingClient):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        host: str = "localhost",
+        port: int = 3040,
+        timeout: float = 15.0,
+    ):
+        super().__init__(logger, host=host, port=port, timeout=timeout)
+        self._is_tracking = False
+        self._is_parked = False
+        self._is_slewing = False
 
     def connect(self) -> None:
         """Connect to TheSkyX telescope.
