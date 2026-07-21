@@ -46,6 +46,4 @@ select = ["N", "I", "UP", "F"]
 notice-rgx = "(?i)# SPDX-FileCopyrightText:\\s\\d{4}(-(\\d{4}|present))*"
 
 [tool.uv.sources]
-# Local checkout: the autoguider instrument depends on the Autoguider
-# interface (GuiderException etc.) that is not yet merged into astroufsc.
-chimera = { path = "../chimera" }
+chimera = { git = "https://github.com/astroufsc/chimera.git" }
