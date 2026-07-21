@@ -132,6 +132,23 @@ class TheSkyXTelescope(TelescopeBase):
         ra, dec = site.alt_az_to_ra_dec(alt, az)
 
         self.slew_to_ra_dec(ra, dec)
+        # An Alt/Az target is fixed to the horizon, so sidereal tracking must be
+        # off. TheSkyX turns tracking on when the (RA/Dec) slew finishes, so
+        # force it back off unconditionally. RA/Dec slews deliberately leave
+        # tracking on.
+        self._force_tracking_off()
+
+    def _force_tracking_off(self) -> None:
+        """Turn sidereal tracking off after an Alt/Az slew.
+
+        Best effort: a failure here (e.g. a mount that rejects SetTracking)
+        must not fail the slew itself.
+        """
+        try:
+            self._driver.stop_tracking()
+            self.tracking_stopped(TelescopeStatus.OK)
+        except TheSkyXCommandError as e:
+            self.log.warning(f"Could not disable tracking after Alt/Az slew: {e}")
 
     def abort_slew(self) -> None:
         """Abort any in-progress slew."""
