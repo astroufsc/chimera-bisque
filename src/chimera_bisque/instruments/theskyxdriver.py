@@ -102,9 +102,11 @@ class TheSkyXDriver:
                 f"Failed to connect to TheSkyX at {self.host}:{self.port}: {e}"
             )
 
-        self.log.debug(f"TheSkyX response: {response}")
         result = response.split("|")[0].strip()
-        self.log.debug(f"Parsed result: {result}")
+        # One concise line per round-trip (repr keeps it single-line). The
+        # position/slew/tracking pollers hit this constantly, so avoid dumping
+        # the raw framed response and a second parsed line on top of it.
+        self.log.debug(f"TheSkyX -> {result!r}")
         return result
 
     def connect(self) -> None:
@@ -177,7 +179,8 @@ class TheSkyXDriver:
             ra_hours = float(parts[0])
             dec_degrees = float(parts[1])
 
-            self.log.debug(f"Current position: RA={ra_hours}h, Dec={dec_degrees}°")
+            # No per-call debug line here: get_ra_dec is polled and the wire
+            # log in _send_once already carries the result.
             return ra_hours, dec_degrees
 
         except (ValueError, TheSkyXConnectionError) as e:
@@ -324,8 +327,29 @@ class TheSkyXDriver:
             raise TheSkyXCommandError(f"Failed to stop tracking: {e}")
 
     def is_tracking(self) -> bool:
-        """Check if telescope is tracking"""
-        return self._is_tracking
+        """Query the mount's live tracking state.
+
+        Returns the real ``sky6RASCOMTele.IsTracking`` value rather than a
+        cached "last commanded" flag: TheSkyX turns tracking on by itself when
+        an RA/Dec slew finishes, so a cached flag drifts out of sync with the
+        mount and reports "disabled" while it is actually tracking.
+        """
+        if not self._is_connected:
+            return False
+
+        try:
+            command = """
+                var Out;
+                Out = sky6RASCOMTele.IsTracking;
+            """
+            result = self._send_command(command)
+            self._is_tracking = int(result) == 1
+            return self._is_tracking
+        except (TheSkyXCommandError, ValueError) as e:
+            # e.g. the Mount Simulator: "not supported by the selected device".
+            # Fall back to the last known state instead of hanging or raising.
+            self.log.debug(f"IsTracking query failed, using cached state: {e}")
+            return self._is_tracking
 
     def set_park_position(self) -> None:
         """Set the parking position for the telescope to the current position"""

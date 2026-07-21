@@ -18,23 +18,15 @@ from chimera_bisque.instruments.theskyxdriver import (
 )
 
 
-def _canned_response(command: str) -> str:
-    """Emulate the TheSkyX scripting interface for the commands we send."""
-    if "GetRaDec" in command:
-        return "12.5 45.0"
-    if "IsSlewComplete" in command and "SlewToRaDec" not in command:
-        return "1"  # slew complete
-    if "IsConnected" in command and "Disconnect" in command:
-        return "0"
-    if "IsConnected" in command:
-        return "1"  # connected
-    return "undefined"
-
-
 class _FakeSkyXHandler(socketserver.BaseRequestHandler):
+    """Emulate the TheSkyX scripting interface for the commands we send.
+
+    Tracking is stateful on the server so IsTracking reflects SetTracking.
+    """
+
     def handle(self):
         data = self.request.recv(4096).decode("utf-8", errors="ignore")
-        self.request.sendall(_canned_response(data).encode("utf-8"))
+        self.request.sendall(self._respond(data).encode("utf-8"))
         # Keep the connection open until the client shuts down its side, so the
         # driver's shutdown()/close() do not race with the server closing first.
         try:
@@ -42,10 +34,30 @@ class _FakeSkyXHandler(socketserver.BaseRequestHandler):
         except OSError:
             pass
 
+    def _respond(self, command: str) -> str:
+        server = self.server
+        if "SetTracking(1" in command:
+            server.tracking = True
+        elif "SetTracking(0" in command:
+            server.tracking = False
+
+        if "GetRaDec" in command:
+            return "12.5 45.0"
+        if "IsTracking" in command:
+            return "1" if server.tracking else "0"
+        if "IsSlewComplete" in command and "SlewToRaDec" not in command:
+            return "1"  # slew complete
+        if "IsConnected" in command and "Disconnect" in command:
+            return "0"
+        if "IsConnected" in command:
+            return "1"  # connected
+        return "undefined"
+
 
 @pytest.fixture
 def skyx_server():
     server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _FakeSkyXHandler)
+    server.tracking = False
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
