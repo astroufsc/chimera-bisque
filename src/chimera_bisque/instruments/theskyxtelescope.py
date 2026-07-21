@@ -25,6 +25,9 @@ class TheSkyXTelescope(TelescopeBase):
         "max_slew_time_sec": 300,
         "poll_interval_sec": 0.1,
         "min_altitude": -90,
+        # Trace every scripting round-trip at DEBUG. Off by default: the
+        # pollers run several times a second and would swamp the log.
+        "log_protocol": False,
     }
 
     def __init__(self):
@@ -41,6 +44,7 @@ class TheSkyXTelescope(TelescopeBase):
                 self.log,
                 host=self["skyx_host"],
                 port=int(self["skyx_port"]),
+                log_protocol=bool(self["log_protocol"]),
             )
             self._driver.connect()
             self.log.info("Connected TheSkyX successfully")

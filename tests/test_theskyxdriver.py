@@ -122,3 +122,25 @@ def test_connection_error_on_dead_port():
     driver = TheSkyXDriver(logging.getLogger("test"), host="127.0.0.1", port=1)
     with pytest.raises(TheSkyXConnectionError):
         driver.connect()
+
+
+def test_protocol_logging_is_off_by_default(skyx_server, caplog):
+    # The pollers run several times a second, so the per-round-trip wire log
+    # must stay quiet unless explicitly asked for.
+    host, port = skyx_server
+    driver = TheSkyXDriver(logging.getLogger("test"), host=host, port=port)
+    with caplog.at_level(logging.DEBUG, logger="test"):
+        driver.connect()
+        driver.get_ra_dec()
+    assert not [r for r in caplog.records if "TheSkyX ->" in r.getMessage()]
+
+
+def test_protocol_logging_can_be_enabled(skyx_server, caplog):
+    host, port = skyx_server
+    driver = TheSkyXDriver(
+        logging.getLogger("test"), host=host, port=port, log_protocol=True
+    )
+    with caplog.at_level(logging.DEBUG, logger="test"):
+        driver.connect()
+        driver.get_ra_dec()
+    assert [r for r in caplog.records if "TheSkyX ->" in r.getMessage()]

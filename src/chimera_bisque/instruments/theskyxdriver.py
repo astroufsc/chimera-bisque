@@ -28,11 +28,13 @@ class TheSkyXScriptingClient:
         host: str = "localhost",
         port: int = 3040,
         timeout: float = 15.0,
+        log_protocol: bool = False,
     ):
         self.log = logger
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.log_protocol = log_protocol
         # How long to keep retrying a command that TheSkyX rejects with
         # "Another script is running" (it serialises socket scripts and can
         # stay busy for a second or two after a slew).
@@ -106,10 +108,12 @@ class TheSkyXScriptingClient:
             )
 
         result = response.split("|")[0].strip()
-        # One concise line per round-trip (repr keeps it single-line). The
-        # position/slew/tracking pollers hit this constantly, so avoid dumping
-        # the raw framed response and a second parsed line on top of it.
-        self.log.debug(f"TheSkyX -> {result!r}")
+        # Opt-in only: the position/slew/tracking pollers run this path several
+        # times a second, and their bare '0'/'1' replies swamped the log
+        # (~20% of all lines) without saying anything useful. Turn on the
+        # 'log_protocol' config to trace the wire while debugging.
+        if self.log_protocol:
+            self.log.debug(f"TheSkyX -> {result!r}")
         return result
 
 
@@ -120,8 +124,11 @@ class TheSkyXDriver(TheSkyXScriptingClient):
         host: str = "localhost",
         port: int = 3040,
         timeout: float = 15.0,
+        log_protocol: bool = False,
     ):
-        super().__init__(logger, host=host, port=port, timeout=timeout)
+        super().__init__(
+            logger, host=host, port=port, timeout=timeout, log_protocol=log_protocol
+        )
         self._is_tracking = False
         self._is_parked = False
         self._is_slewing = False

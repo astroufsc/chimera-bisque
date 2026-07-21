@@ -60,6 +60,9 @@ class TheSkyXAutoguider(ChimeraObject, Autoguider):
         "edge_margin": 0.05,  # Fraction of the frame to avoid near the edges when picking a star.
         "guide_start_timeout": 60.0,  # Max time (s) to wait for guiding to start when wait=True.
         "calibration_timeout": 300.0,  # Max time (s) to wait for a calibration run.
+        # Trace every scripting round-trip at DEBUG. Off by default: the
+        # pollers run several times a second and would swamp the log.
+        "log_protocol": False,
     }
 
     def __init__(self) -> None:
@@ -73,6 +76,7 @@ class TheSkyXAutoguider(ChimeraObject, Autoguider):
             self.log,
             host=self["skyx_host"],
             port=int(self["skyx_port"]),
+            log_protocol=bool(self["log_protocol"]),
         )
         try:
             self._driver.connect()
