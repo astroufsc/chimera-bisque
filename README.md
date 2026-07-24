@@ -1,6 +1,7 @@
 # Bisque
 
-Chimera plugin for Software Bisque TheSky/TheSkyX telescopes
+Chimera plugin for Software Bisque TheSky/TheSkyX telescopes and the
+TheSkyX autoguider
 
 This is a plugin for the [Chimera observatory control system](https://github.com/astroufsc/chimera).
 
@@ -33,6 +34,14 @@ instruments:
     - name: telescope
       type: TheSkyTelescope
       thesky: 6
+
+    # TheSkyX autoguider (Autoguide tab of the Camera window)
+    - name: guider
+      type: TheSkyXAutoguider
+      skyx_host: localhost
+      skyx_port: 3040
+      exptime: 2.0          # guide exposure time (s)
+      edge_margin: 0.05     # frame fraction to avoid when auto-selecting a star
 ```
 
 The plugin ships two connection modes:
@@ -44,6 +53,28 @@ The plugin ships two connection modes:
   (`uv sync --extra windows`, which pulls in `pywin32`). The plugin still
   installs and imports on non-Windows machines; the COM driver simply cannot
   connect there.
+
+**`TheSkyXAutoguider`** implements the chimera `Autoguider` interface on top
+of the TheSkyX autoguider camera (ccdsoftAutoguider), mirroring the usual UI
+sequence on the Autoguide tab: take photo, auto-select star, autoguide. It
+uses the calibration stored in TheSkyX (pass `recalibrate` to redo it), and
+can be driven with the `chimera-guide` command line tool:
+
+```bash
+chimera-guide --start        # take photo, auto-select star, autoguide
+chimera-guide --dither 3.0   # move the lock position and resume guiding
+chimera-guide --info         # guider status
+chimera-guide --stop
+```
+
+Notes:
+
+- TheSkyX publishes no per-correction guide errors over the scripting
+  interface, so the `offset_complete` event is never raised and
+  `chimera-guide --monitor` only reports guide stops.
+- Dithering is implemented by shifting the guide star lock position in
+  detector pixels and restarting the guide loop (TheSkyX has no native
+  dither command).
 
 The obsolete `CCDSoftCamera` driver was removed; it is still available on the
 `legacy` branch and in the git history if ever needed.
